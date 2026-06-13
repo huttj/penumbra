@@ -1,0 +1,22 @@
+name = "penumbra-api"
+main = "src/index.ts"
+compatibility_date = "2026-06-01"
+compatibility_flags = ["nodejs_compat"]
+
+# Run `wrangler d1 create penumbra` and paste the returned database_id here for remote deploys.
+# Local dev (`wrangler dev`) works without it — it uses a local SQLite under .wrangler/.
+[[d1_databases]]
+binding = "DB"
+database_name = "penumbra"
+database_id = "REPLACE_AFTER_d1_create"
+migrations_dir = "migrations"
+
+[vars]
+# The static site origin allowed to call this API (CORS). Override per-env.
+SITE_ORIGIN = "http://localhost:8080"
+# Enables POST /auth/dev for local testing without real OAuth apps. Set to "false" in prod.
+DEV_LOGIN = "true"
+# Public URL of THIS worker, used to build OAuth redirect_uris and annotation ids.
+# Leave blank locally; the worker falls back to the request origin.
+PUBLIC_API_BASE = ""
+MAIL_FROM = "Penumbra <onboarding@resend.dev>"

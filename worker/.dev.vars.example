@@ -1,0 +1,12 @@
+# Copy to .dev.vars (gitignored) and fill in to test real providers locally.
+# Any provider you leave blank is simply disabled.
+
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+
+# Email magic links. Without a key, links are logged to the wrangler console
+# (and returned in the API response when DEV_LOGIN=true) so you can still test.
+RESEND_API_KEY=

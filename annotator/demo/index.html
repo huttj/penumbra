@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Penumbra — annotator demo</title>
+  <style>
+    body { margin: 0; background: #fafaf8; color: #1a1a1a;
+      font: 18px/1.7 Georgia, "Times New Roman", serif; }
+    article { max-width: 680px; margin: 60px auto 200px; padding: 0 24px; }
+    h1 { font-size: 34px; line-height: 1.2; }
+    .sub { color: #888; font-style: italic; }
+    article p { margin: 1.2em 0; }
+    ol { padding-left: 1.4em; }
+  </style>
+</head>
+<body>
+  <article>
+    <h1>The Big Crunch</h1>
+    <p class="sub">A research vault — three open questions.</p>
+    <p>This is my research vault. I have three areas of interest, and I want to
+       write toward findings rather than just collect links.</p>
+    <ol>
+      <li>What's causing the "big crunch" in modern society? Where are the
+          leverage points? How can we make life enjoyable and free again?</li>
+      <li>What's going on with men, and how do we fix it?</li>
+      <li>Why are people alive?</li>
+    </ol>
+    <p>The last one is more of an interview angle, but I do want to research it
+       and write about my findings. Select any sentence here to leave a comment —
+       a highlight will anchor to the exact words, and the note travels with them
+       even if the surrounding paragraph changes.</p>
+    <p>Acceleration, alienation, resonance: the vocabulary we reach for when we
+       talk about modern malaise is worth interrogating. Each term smuggles in a
+       theory of what went wrong.</p>
+  </article>
+
+  <script>
+    window.PENUMBRA = {
+      api: 'http://localhost:8787',
+      source: 'http://localhost:8080/demo/the-big-crunch',
+      root: 'article'
+    }
+  </script>
+  <script src="./penumbra.js" defer></script>
+</body>
+</html>

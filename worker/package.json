@@ -1,0 +1,17 @@
+{
+  "name": "penumbra-worker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "migrate:local": "wrangler d1 migrations apply penumbra --local",
+    "migrate:remote": "wrangler d1 migrations apply penumbra --remote",
+    "deploy": "wrangler deploy"
+  },
+  "dependencies": {
+    "hono": "^4.6.14"
+  },
+  "devDependencies": {
+    "wrangler": "^4.100.0"
+  }
+}
