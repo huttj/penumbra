@@ -73,7 +73,27 @@ Run the anchoring tests: `cd annotator && node test/anchor.test.mjs`
 4. **Email** — create a [Resend](https://resend.com) key: `wrangler secret put RESEND_API_KEY`. Set `MAIL_FROM` to a verified sender.
 5. **Domain** — point it at Cloudflare; put the site on `yourdomain.com`, the worker on `api.yourdomain.com`.
 
-## Not done yet
-- **Quartz publish step** (Obsidian vault → static site → Cloudflare Pages, with `penumbra.js` injected). This is the next task.
+## Publishing the vault (`site/`)
+
+Quartz (vendored, v5) turns `vault/Research/` into the static site. `site/content`
+is a symlink to the vault; the annotator is injected via `site/quartz/components/Head.tsx`
+(config + `/static/penumbra.js`), and re-anchors on Quartz SPA navigation.
+
+```bash
+# one-time after a fresh clone:
+cd site && npm install && npx quartz plugin install --from-config
+# build the annotator bundle (copies into site/quartz/static/penumbra.js):
+cd ../annotator && npm install && npm run build
+# preview with clean URLs + SPA + hot reload:
+cd ../site && npx quartz build --serve --port 8080
+```
+
+**Cloudflare Pages** — Build command:
+`cd annotator && npm i && npm run build && cd ../site && npm i && npx quartz plugin install --from-config && npx quartz build`
+· Output dir: `site/public` · also set `SITE_ORIGIN=https://penumbra.page` on the Worker.
+
+## Not done yet / ideas
 - **LLM layer** — image captioning + embeddings index + chat-over-content API. Separate pipeline; the W3C-JSON store makes "chat about the comments" trivial.
+- **LLM changelogs + digests** — git history → LLM-written per-note changelogs; periodic digests of new writing + comments. Fits cleanly: the vault is git, comments are structured JSON.
 - Git-snapshot exporter for archival/federation. Replies/threads. Version stepper UI.
+- **Auth scope** — GitHub/Google/email all work; going *email-only* is just hiding the OAuth buttons (one toggle). Deferred — Josh is deciding.

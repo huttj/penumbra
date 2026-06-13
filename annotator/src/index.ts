@@ -19,6 +19,10 @@ function boot() {
   const p = new Penumbra(cfg)
   window.penumbra = p
   p.init().catch((e) => console.error('[penumbra] init failed', e))
+
+  // Quartz (and other SPA routers) swap page content without a full reload and
+  // dispatch a `nav` event on document. Re-anchor for the new page.
+  document.addEventListener('nav', () => p.reload().catch((e) => console.error('[penumbra] reload failed', e)))
 }
 
 if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot)

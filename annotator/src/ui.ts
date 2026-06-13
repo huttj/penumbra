@@ -2,12 +2,13 @@ import { Api, type Annotation, type User } from './api'
 import { rangeFromSelectors, selectorsFromRange } from './anchor'
 import { CSS } from './styles'
 
-type Config = { api: string; source?: string; root?: string; docVersion?: string }
+type Config = { api: string; source?: string; sourceBase?: string; root?: string; docVersion?: string }
 
 const HL_SUPPORTED = typeof (globalThis as any).Highlight !== 'undefined' && !!(CSS as any).highlights
 
 export class Penumbra {
   private api: Api
+  private cfg: Config
   private root: HTMLElement
   private source: string
   private docVersion?: string
@@ -19,10 +20,30 @@ export class Penumbra {
   private gutter: HTMLElement[] = []
 
   constructor(cfg: Config) {
+    this.cfg = cfg
     this.api = new Api(cfg.api)
-    this.root = (cfg.root ? document.querySelector(cfg.root) : null) ?? document.body
-    this.source = cfg.source ?? location.href
+    this.root = this.resolveRoot()
+    this.source = this.computeSource()
     this.docVersion = cfg.docVersion
+  }
+
+  private resolveRoot(): HTMLElement {
+    return (this.cfg.root ? document.querySelector<HTMLElement>(this.cfg.root) : null) ?? document.body
+  }
+
+  // Stable, canonical page key. Prefer an explicit source; else derive from the
+  // published base URL + current path so local preview and production agree.
+  private computeSource(): string {
+    if (this.cfg.source) return this.cfg.source
+    if (this.cfg.sourceBase) {
+      // Normalize so local preview (/welcome.html) and production (/welcome) agree.
+      const path = location.pathname
+        .replace(/\/index\.html?$/i, '/')
+        .replace(/\.html?$/i, '')
+        .replace(/\/$/, '')
+      return this.cfg.sourceBase.replace(/\/$/, '') + path
+    }
+    return location.href
   }
 
   async init() {
@@ -41,6 +62,15 @@ export class Penumbra {
     document.addEventListener('click', (e) => this.onDocClick(e))
     window.addEventListener('scroll', () => this.positionGutter(), { passive: true })
     window.addEventListener('resize', () => this.positionGutter())
+  }
+
+  // Re-anchor for a new page after a Quartz SPA navigation (no full reload).
+  async reload() {
+    this.closeCard()
+    this.removeAddBtn()
+    this.root = this.resolveRoot()
+    this.source = this.computeSource()
+    await this.loadAnnotations()
   }
 
   // ---- data ---------------------------------------------------------------
