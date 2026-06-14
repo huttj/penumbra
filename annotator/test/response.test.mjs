@@ -15,7 +15,29 @@ let pass = 0, fail = 0
 const ok = (n, c) => { c ? pass++ : (fail++, console.error('  ✗ ' + n)); if (c) console.log('  ✓ ' + n) }
 
 // ---- markdown (no DOM) ----
-const { renderMarkdown } = await import('./.tmp/markdown.mjs')
+const { renderMarkdown, parseResponse, serializeResponse, isEmojiNote } = await import('./.tmp/markdown.mjs')
+
+// response doc <-> blocks
+{
+  const doc = `> What's causing the big crunch?\n\nGood question!\n\n> Why are people alive?\n\n🔥`
+  const { preamble, blocks } = parseResponse(doc)
+  ok('parse: two blocks', blocks.length === 2)
+  ok('parse: quote + owned note', blocks[0].quotes[0] === "What's causing the big crunch?" && blocks[0].note === 'Good question!')
+  ok('parse: emoji note', isEmojiNote(blocks[1].note) === true)
+  ok('parse: text note is not emoji', isEmojiNote(blocks[0].note) === false)
+  // adjacent quotes (blank-separated, no prose between) group into one block
+  const adj = parseResponse(`> quote one here\n\n> quote two here\n\nshared note`)
+  ok('parse: adjacent quotes grouped', adj.blocks.length === 1 && adj.blocks[0].quotes.length === 2)
+  ok('parse: grouped note is shared', adj.blocks[0].note === 'shared note')
+  // round-trip
+  const back = serializeResponse(preamble, blocks)
+  const re = parseResponse(back)
+  ok('round-trip preserves blocks', re.blocks.length === 2 && re.blocks[0].note === 'Good question!')
+  // editing a note then serializing
+  blocks[0].note = 'Edited note.'
+  ok('serialize reflects edited note', serializeResponse(preamble, blocks).includes('Edited note.'))
+}
+
 ok('md heading', renderMarkdown('# Hi').includes('<h1>Hi</h1>'))
 ok('md bold', renderMarkdown('a **b** c').includes('<strong>b</strong>'))
 ok('md blockquote', renderMarkdown('> quote').includes('<blockquote>'))

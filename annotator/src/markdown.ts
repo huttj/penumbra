@@ -17,6 +17,58 @@ export function extractBlockquotes(md: string): string[] {
   return out.filter((t) => t.length >= 6)
 }
 
+// A response block: one or more (adjacent) quotes that own the note beneath them.
+export type RBlock = { quotes: string[]; note: string }
+
+const isQ = (l: string | undefined) => /^\s*>/.test(l ?? '')
+const isBlank = (l: string | undefined) => (l ?? '').trim() === ''
+
+// Parse a response doc into a leading preamble + a sequence of quote-blocks.
+// A quote owns the prose below it until the next quote; quotes separated only by
+// blank lines are "adjacent" and grouped into one block that shares the note.
+export function parseResponse(md: string): { preamble: string; blocks: RBlock[] } {
+  const lines = (md ?? '').replace(/\r\n/g, '\n').split('\n')
+  let i = 0
+  const preamble: string[] = []
+  while (i < lines.length && !isQ(lines[i])) { preamble.push(lines[i]); i++ }
+
+  const blocks: RBlock[] = []
+  while (i < lines.length) {
+    const quotes: string[] = []
+    while (isQ(lines[i])) {
+      const q: string[] = []
+      while (i < lines.length && isQ(lines[i])) { q.push(lines[i].replace(/^\s*>\s?/, '')); i++ }
+      quotes.push(q.join(' ').trim())
+      let j = i
+      while (j < lines.length && isBlank(lines[j])) j++
+      if (j < lines.length && isQ(lines[j])) { i = j; continue } // adjacent quote → same block
+      break
+    }
+    const note: string[] = []
+    while (i < lines.length && !isQ(lines[i])) { note.push(lines[i]); i++ }
+    blocks.push({ quotes, note: note.join('\n').trim() })
+  }
+  return { preamble: preamble.join('\n').trim(), blocks }
+}
+
+// Round-trip the structure back to markdown.
+export function serializeResponse(preamble: string, blocks: RBlock[]): string {
+  const parts: string[] = []
+  if (preamble.trim()) parts.push(preamble.trim())
+  for (const b of blocks) {
+    if (!b.quotes.length && !b.note.trim()) continue
+    const qs = b.quotes.map((q) => `> ${q.replace(/\n/g, ' ')}`).join('\n>\n')
+    parts.push(b.note.trim() ? `${qs}\n\n${b.note.trim()}` : qs)
+  }
+  return parts.join('\n\n') + '\n'
+}
+
+// A note that's just an emoji (or a few) renders as a left-rail chip, not a card.
+export function isEmojiNote(note: string): boolean {
+  const t = note.trim()
+  return t.length > 0 && t.length <= 8 && !/[a-z0-9]/i.test(t)
+}
+
 function inline(s: string): string {
   return esc(s)
     .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, '<img alt="$1" src="$2">')
