@@ -131,6 +131,7 @@ export const CSS = `
   position: absolute; z-index: 2147483646; transform: translate(-50%, -118%);
   background: var(--pen-fg); color: var(--pen-bg); border: none; border-radius: 7px;
   padding: 6px 11px; font-size: 13px; font-weight: 600; cursor: pointer; box-shadow: var(--pen-shadow);
+  white-space: nowrap;
 }
 
 /* ---- emoji reactions (left rail) ---- */

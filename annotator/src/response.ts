@@ -116,12 +116,15 @@ export class ResponsePanel {
     if (ranges.length) h.set('penumbra-quote', new (globalThis as any).Highlight(...ranges)); else h.delete('penumbra-quote')
   }
 
-  // Emphasize the source for the blockquote the editor cursor sits in.
+  // Emphasize the source for the quote that owns the cursor — whether the cursor
+  // is on the blockquote line or in the prose beneath it (up to the prior quote).
   private amplifyAtCursor() {
     const lines = this.ta.value.split('\n')
     const li = this.ta.value.slice(0, this.ta.selectionStart).split('\n').length - 1
-    if (!/^\s*>/.test(lines[li] ?? '')) return this.amplify(null)
-    let s = li, e = li
+    let i = li
+    while (i >= 0 && !/^\s*>/.test(lines[i] ?? '')) i--
+    if (i < 0) return this.amplify(null)
+    let s = i, e = i
     while (s > 0 && /^\s*>/.test(lines[s - 1])) s--
     while (e < lines.length - 1 && /^\s*>/.test(lines[e + 1])) e++
     this.amplify(lines.slice(s, e + 1).map((l) => l.replace(/^\s*>\s?/, '')).join(' ').trim())

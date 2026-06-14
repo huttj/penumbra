@@ -1,5 +1,6 @@
 import { Api, type Annotation, type User } from './api'
-import { rangeFromSelectors, selectorsFromRange } from './anchor'
+import { rangeFromSelectors, resolveQuoteStrict, selectorsFromRange } from './anchor'
+import { extractBlockquotes } from './markdown'
 import { ResponsePanel, ReviewsPanel } from './response'
 import { CSS } from './styles'
 
@@ -21,6 +22,7 @@ export class Penumbra {
   private isAuthor = false
 
   private items = new Map<string, Item>()
+  private responseBody = '' // the reader's response doc, for persistent quote highlights
   private drafts = new Map<string, { selectors: any; range: Range | null; text: string }>()
   private highlightsOn = true
   private filter: Filter = 'all'
@@ -112,6 +114,27 @@ export class Penumbra {
       this.items.set(anno.id, { anno, range: rangeFromSelectors(anno.target.selector, this.root) })
     }
     this.renderAll()
+    this.loadResponseHighlights()
+  }
+
+  // Highlight the quotes from the reader's saved response doc on the page itself,
+  // so they persist even when the response panel is closed. While the panel is
+  // open it owns the 'penumbra-quote' highlight (live editing), so we yield.
+  private async loadResponseHighlights() {
+    if (!this.user || this.responsePanel) return
+    const resp = await this.api.getResponse(this.source).catch(() => null)
+    this.responseBody = resp?.body ?? ''
+    this.renderResponseHighlights()
+  }
+
+  private renderResponseHighlights() {
+    if (!HL || this.responsePanel) return
+    const ranges = extractBlockquotes(this.responseBody)
+      .map((t) => resolveQuoteStrict([{ type: 'TextQuoteSelector', exact: t }], this.root))
+      .filter(Boolean) as Range[]
+    const h = (window as any).CSS.highlights
+    if (ranges.length) h.set('penumbra-quote', new (globalThis as any).Highlight(...ranges))
+    else h.delete('penumbra-quote')
   }
 
   private kindOf = (a: Annotation): 'comment' | 'emoji' => a['penumbra:kind'] ?? 'comment'
@@ -409,7 +432,7 @@ export class Penumbra {
     const b = document.createElement('button')
     b.className = 'pen-addbtn'
     b.setAttribute('data-pen-ui', '')
-    b.textContent = '❝ Quote'
+    b.textContent = 'Quote'
     b.style.left = `${window.scrollX + rect.left + rect.width / 2}px`
     b.style.top = `${window.scrollY + rect.top}px`
     b.onmousedown = (e) => { e.preventDefault(); e.stopPropagation() }
@@ -570,6 +593,7 @@ export class Penumbra {
         this.removeQuoteBtn()
         this.toolbar?.querySelector('[data-act="response"]')?.classList.remove('active')
         this.renderHighlights()
+        this.loadResponseHighlights() // panel may have edited the doc; refresh page highlights
       },
     })
     this.responsePanel.open()

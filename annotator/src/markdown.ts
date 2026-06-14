@@ -5,6 +5,18 @@
 const esc = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
+// Pull blockquote passages from markdown (consecutive '>' lines = one quote).
+export function extractBlockquotes(md: string): string[] {
+  const out: string[] = []
+  let cur: string[] = []
+  for (const ln of (md ?? '').split('\n')) {
+    if (/^\s*>/.test(ln)) cur.push(ln.replace(/^\s*>\s?/, ''))
+    else if (cur.length) { out.push(cur.join(' ').trim()); cur = [] }
+  }
+  if (cur.length) out.push(cur.join(' ').trim())
+  return out.filter((t) => t.length >= 6)
+}
+
 function inline(s: string): string {
   return esc(s)
     .replace(/!\[([^\]]*)\]\(([^)\s]+)\)/g, '<img alt="$1" src="$2">')
