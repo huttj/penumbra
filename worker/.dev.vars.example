@@ -1,9 +1,18 @@
-# Copy to .dev.vars (gitignored) for local testing. Login is email-only.
+# Copy to .dev.vars (gitignored) for local `wrangler dev`. These OVERRIDE the
+# production values in wrangler.toml so local dev talks to localhost, not prod.
+#
+# IMPORTANT: set PUBLIC_API_BASE explicitly. The api.penumbra.page custom-domain
+# route makes wrangler dev report that host in the request URL, so leaving this
+# blank produces prod-pointing magic links ("link expired" when clicked locally).
 
-# ZeptoMail HTTP Email API token (= your ZeptoMail SMTP *password*, the "enczapikey").
-# Workers can't do SMTP, so we use ZeptoMail's HTTP API with this token.
-# Leave blank locally → magic links are returned in the API response instead of emailed.
+SITE_ORIGIN=http://localhost:8080
+PUBLIC_API_BASE=http://localhost:8787
+DEV_LOGIN=true
+AUTHOR_IDS=email:josh@dev.local,email:joshua@huttj.com
+
+# ZeptoMail HTTP API token (= your ZeptoMail SMTP password / the "enczapikey").
+# Leave blank locally → magic links are returned in the API response for testing.
 ZEPTOMAIL_TOKEN=
 
-# Optional: regional endpoint override, e.g. https://api.zeptomail.eu/v1.1/email
-ZEPTOMAIL_URL=
+# Optional: GitHub PAT (Contents: R/W) to test response write-back locally.
+GITHUB_TOKEN=
