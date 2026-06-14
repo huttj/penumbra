@@ -156,22 +156,36 @@ auth.get('/email/verify', async (c) => {
   return redirectWithToken(c.env.SITE_ORIGIN, row.return_to ?? undefined, sess)
 })
 
+function parseFrom(s?: string): { name: string; address: string } {
+  const m = /^(.*?)<(.+)>/.exec(s ?? '')
+  if (m) return { name: m[1].trim() || 'Penumbra', address: m[2].trim() }
+  return { name: 'Penumbra', address: (s ?? 'noreply@penumbra.page').trim() }
+}
+
 async function sendMagicLink(env: Env, email: string, link: string): Promise<boolean> {
-  if (!env.RESEND_API_KEY) {
+  if (!env.ZEPTOMAIL_TOKEN) {
     console.log(`[penumbra] magic link for ${email}: ${link}`)
     return false
   }
-  const res = await fetch('https://api.resend.com/emails', {
+  const res = await fetch(env.ZEPTOMAIL_URL ?? 'https://api.zeptomail.com/v1.1/email', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, 'Content-Type': 'application/json' },
+    headers: {
+      Authorization: `Zoho-enczapikey ${env.ZEPTOMAIL_TOKEN}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
     body: JSON.stringify({
-      from: env.MAIL_FROM ?? 'Penumbra <onboarding@resend.dev>',
-      to: email,
+      from: parseFrom(env.MAIL_FROM),
+      to: [{ email_address: { address: email } }],
       subject: 'Your Penumbra sign-in link',
-      html: `<p>Click to sign in and comment:</p><p><a href="${link}">${link}</a></p><p>This link expires in 30 minutes.</p>`,
+      htmlbody: `<p>Click to sign in and comment:</p><p><a href="${link}">${link}</a></p><p>This link expires in 30 minutes.</p>`,
     }),
   })
-  return res.ok
+  if (!res.ok) {
+    console.log(`[penumbra] ZeptoMail send failed (${res.status}): ${await res.text().catch(() => '')}`)
+    return false
+  }
+  return true
 }
 
 // ---- Dev login (local testing only) ---------------------------------------

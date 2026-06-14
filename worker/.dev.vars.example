@@ -1,12 +1,9 @@
-# Copy to .dev.vars (gitignored) and fill in to test real providers locally.
-# Any provider you leave blank is simply disabled.
+# Copy to .dev.vars (gitignored) for local testing. Login is email-only.
 
-GITHUB_CLIENT_ID=
-GITHUB_CLIENT_SECRET=
+# ZeptoMail HTTP Email API token (= your ZeptoMail SMTP *password*, the "enczapikey").
+# Workers can't do SMTP, so we use ZeptoMail's HTTP API with this token.
+# Leave blank locally → magic links are returned in the API response instead of emailed.
+ZEPTOMAIL_TOKEN=
 
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-
-# Email magic links. Without a key, links are logged to the wrangler console
-# (and returned in the API response when DEV_LOGIN=true) so you can still test.
-RESEND_API_KEY=
+# Optional: regional endpoint override, e.g. https://api.zeptomail.eu/v1.1/email
+ZEPTOMAIL_URL=

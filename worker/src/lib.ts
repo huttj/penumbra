@@ -9,8 +9,9 @@ export type Env = {
   GITHUB_CLIENT_SECRET?: string
   GOOGLE_CLIENT_ID?: string
   GOOGLE_CLIENT_SECRET?: string
-  RESEND_API_KEY?: string
-  MAIL_FROM?: string
+  ZEPTOMAIL_TOKEN?: string // ZeptoMail "Send Mail" token (set as a Worker secret)
+  ZEPTOMAIL_URL?: string   // optional override, e.g. https://api.zeptomail.eu/v1.1/email
+  MAIL_FROM?: string       // "Name <address@penumbra.page>"
   AUTHOR_IDS?: string // comma-separated user ids who "own" pages (can acknowledge; replies badged)
 }
 

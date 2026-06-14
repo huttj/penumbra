@@ -13,7 +13,7 @@ custom_domain = true
 [[d1_databases]]
 binding = "DB"
 database_name = "penumbra"
-database_id = "REPLACE_AFTER_d1_create"
+database_id = "28d20030-ff71-47fd-a028-70375bab004a"
 migrations_dir = "migrations"
 
 # ---- production values (used by `wrangler deploy`) ----
@@ -22,5 +22,5 @@ migrations_dir = "migrations"
 SITE_ORIGIN = "https://penumbra.page"        # CORS: the static site origin
 PUBLIC_API_BASE = "https://api.penumbra.page" # this Worker's public URL (annotation ids)
 DEV_LOGIN = "false"                           # disable the /auth/dev test endpoint in prod
-MAIL_FROM = "Penumbra <noreply@penumbra.page>"  # verify this domain in Resend
+MAIL_FROM = "Penumbra <noreply@penumbra.page>"  # must be on your ZeptoMail-verified domain
 AUTHOR_IDS = "email:squashai@gmail.com"       # your identity → replies badged "author"

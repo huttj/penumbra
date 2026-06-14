@@ -7,9 +7,10 @@ without it, nobody (including you) can sign in.
 ## 0. Prerequisites
 - `penumbra.page` zone on your Cloudflare account ✅
 - `wrangler` logged in ✅ (`npx wrangler whoami`)
-- **Resend** account → verify the `penumbra.page` domain → create an API key.
-  (MailChannels' free Workers sending is gone; Resend free tier = 3k emails/mo.)
-  `MAIL_FROM` in `wrangler.toml` is `noreply@penumbra.page` — must be on the verified domain.
+- **ZeptoMail** (Zoho) — domain verified ✅, pay-as-you-go. We send via its HTTP
+  Email API (Workers can't do SMTP). The credential is the **Send Mail token**
+  (= your ZeptoMail SMTP password / the `enczapikey`). `MAIL_FROM` in `wrangler.toml`
+  is `noreply@penumbra.page` and must be on the verified domain.
 
 > **AUTHOR_IDS = the email you sign into Penumbra with.** It's currently
 > `email:squashai@gmail.com`. That's how the system knows which replies are "the author"
@@ -20,7 +21,7 @@ without it, nobody (including you) can sign in.
 cd worker
 npx wrangler d1 create penumbra          # → copy the database_id into wrangler.toml
 npx wrangler d1 migrations apply penumbra --remote
-npx wrangler secret put RESEND_API_KEY   # paste your Resend key
+npx wrangler secret put ZEPTOMAIL_TOKEN  # paste your ZeptoMail Send Mail token
 npx wrangler deploy                      # also provisions the api.penumbra.page custom domain
 curl https://api.penumbra.page/          # → {"name":"penumbra-api","ok":true}
 ```
