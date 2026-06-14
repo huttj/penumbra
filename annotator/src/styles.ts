@@ -29,7 +29,8 @@ export const CSS = `
 /* translucent highlight reads on both light and dark backgrounds */
 ::highlight(penumbra) { background-color: rgba(255, 196, 64, 0.32); }
 ::highlight(penumbra-active) { background-color: rgba(255, 178, 43, 0.58); }
-::highlight(penumbra-draft) { background-color: rgba(120, 170, 255, 0.30); text-decoration: underline dashed; }
+/* pending compose + saved drafts: same yellow, dotted underline until committed */
+::highlight(penumbra-draft) { background-color: rgba(255, 196, 64, 0.32); text-decoration: underline dotted; text-decoration-thickness: 2px; }
 
 [data-pen-ui], [data-pen-ui] * { box-sizing: border-box; }
 [data-pen-ui] {
@@ -62,7 +63,7 @@ export const CSS = `
   position: absolute; width: 290px; z-index: 2147483645;
   background: var(--pen-bg); border: 1px solid var(--pen-border);
   border-radius: 11px; box-shadow: var(--pen-shadow);
-  transition: top .18s ease, box-shadow .18s ease; overflow: hidden;
+  transition: box-shadow .18s ease; overflow: hidden;
 }
 .pen-card.compact { cursor: pointer; }
 .pen-card.compact:hover { border-color: var(--pen-accent); }
@@ -113,7 +114,8 @@ export const CSS = `
 .pen-compose { position: absolute; width: 300px; z-index: 2147483646;
   background: var(--pen-bg); border: 1px solid var(--pen-border); border-radius: 11px;
   box-shadow: var(--pen-shadow); padding: 10px; }
-.pen-emojibar { display: flex; gap: 4px; margin-top: 8px; }
+.pen-composebar { margin-top: 8px; display: flex; gap: 8px; align-items: center; justify-content: space-between; }
+.pen-emojibar { display: flex; gap: 4px; }
 .pen-emojibar button { font-size: 18px; background: var(--pen-chip); border: 1px solid var(--pen-border);
   border-radius: 8px; padding: 3px 7px; cursor: pointer; line-height: 1.2; }
 .pen-emojibar button:hover { background: var(--pen-chip-hover); transform: scale(1.08); }

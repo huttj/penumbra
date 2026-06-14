@@ -166,8 +166,12 @@ export class Penumbra {
     )
     hl.set('penumbra', new H(...ranges))
 
-    const draftRanges = [...this.drafts.values()].map((d) => d.range).filter(Boolean) as Range[]
-    if (draftRanges.length) hl.set('penumbra-draft', new H(...draftRanges)); else hl.delete('penumbra-draft')
+    // Draft highlights = saved drafts + the currently-open compose's range
+    // (so the selection stays visibly highlighted once the textarea steals focus).
+    const draftRanges = [...this.drafts.values()].map((d) => d.range)
+    if (this.composeCtx?.range) draftRanges.push(this.composeCtx.range)
+    const dr = draftRanges.filter(Boolean) as Range[]
+    if (dr.length) hl.set('penumbra-draft', new H(...dr)); else hl.delete('penumbra-draft')
 
     // Active = whatever is hovered, else focused.
     const activeId = this.hovered ?? this.focused
@@ -394,8 +398,8 @@ export class Penumbra {
     box.style.top = `${window.scrollY + rect.bottom + 8}px`
     // No quote — you just selected it, you know what it is.
     box.innerHTML = `<textarea placeholder="Comment…  (⌘/Ctrl + ⏎ to send)"></textarea>
-      <div class="pen-emojibar">${QUICK_EMOJI.map((e) => `<button data-emoji="${e}">${e}</button>`).join('')}</div>
-      <div class="pen-row"><span class="pen-title">or react ↑</span>
+      <div class="pen-composebar">
+        <div class="pen-emojibar">${QUICK_EMOJI.map((e) => `<button data-emoji="${e}">${e}</button>`).join('')}</div>
         <button class="pen-btn" data-act="post">Comment</button></div>`
     const ta = box.querySelector('textarea') as HTMLTextAreaElement
     if (opts?.text) ta.value = opts.text
@@ -407,6 +411,7 @@ export class Penumbra {
     this.layer.appendChild(box)
     this.compose = box
     this.composeCtx = { selectors, range, ta, draftId: opts?.draftId ?? null }
+    this.renderHighlights() // paint the stand-in highlight before focus clears the native selection
     ta.focus()
   }
 
