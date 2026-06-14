@@ -43,6 +43,7 @@ export class ResponsePanel {
     this.flushSave()
     if (HL) { const h = (window as any).CSS.highlights; h.delete('penumbra-quote'); h.delete('penumbra-quote-active') }
     this.el?.remove()
+    unpushAside()
     this.onClose()
   }
 
@@ -68,6 +69,7 @@ export class ResponsePanel {
       <div class="pen-preview" data-preview hidden></div>`
     document.body.appendChild(el)
     this.el = el
+    pushAside(el.offsetWidth)
     this.ta = el.querySelector('[data-essay]') as HTMLTextAreaElement
     this.ta.value = this.body
 
@@ -264,6 +266,7 @@ export class ReviewsPanel {
       a.addEventListener('click', () => this.focusQuote(+(a as HTMLElement).dataset.ri!, +(a as HTMLElement).dataset.qi!)))
     document.body.appendChild(el)
     this.el = el
+    pushAside(el.offsetWidth)
   }
 
   private focusQuote(ri: number, qi: number) {
@@ -277,7 +280,7 @@ export class ReviewsPanel {
 
   close() {
     const h = (window as any).CSS?.highlights; if (h) h.delete('penumbra-quote-active')
-    this.el?.remove(); this.onClose()
+    this.el?.remove(); unpushAside(); this.onClose()
   }
 }
 
@@ -286,3 +289,12 @@ function escapeHtml(s: string): string {
 }
 const fmtDate = (iso: string): string => { try { return new Date(iso).toLocaleDateString() } catch { return '' } }
 const trunc = (s: string, n = 60): string => (s.length > n ? s.slice(0, n) + '…' : s)
+
+// Push the page aside so a panel docks beside content instead of overlapping it.
+function pushAside(px: number) {
+  document.body.style.transition = 'margin-right .2s ease'
+  document.body.style.marginRight = `${px}px`
+}
+function unpushAside() {
+  document.body.style.marginRight = ''
+}
