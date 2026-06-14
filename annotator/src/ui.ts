@@ -1,6 +1,6 @@
 import { Api, type Annotation, type User } from './api'
 import { rangeFromSelectors, selectorsFromRange } from './anchor'
-import { ResponsePanel } from './response'
+import { ResponsePanel, ReviewsPanel } from './response'
 import { CSS } from './styles'
 
 type Config = { api: string; source?: string; sourceBase?: string; root?: string; docVersion?: string; commitSha?: string }
@@ -520,7 +520,8 @@ export class Penumbra {
       <span class="pen-count" data-count>0</span>
       <button class="pen-tbtn" data-act="next" title="Next">›</button>
       <span class="pen-sep"></span>
-      <button class="pen-tbtn" data-act="response" title="Write a full response">✍ Response</button>`
+      <button class="pen-tbtn" data-act="response" title="Write a full response">✍ Response</button>
+      ${this.isAuthor ? '<button class="pen-tbtn" data-act="reviews" title="See everyone\'s responses">👁 Reviews</button>' : ''}`
     bar.querySelector('[data-act="toggle"]')!.addEventListener('click', () => {
       this.highlightsOn = !this.highlightsOn
       bar.querySelector('[data-act="toggle"]')!.classList.toggle('active', this.highlightsOn)
@@ -535,8 +536,21 @@ export class Penumbra {
     bar.querySelector('[data-act="prev"]')!.addEventListener('click', () => this.nav(-1))
     bar.querySelector('[data-act="next"]')!.addEventListener('click', () => this.nav(1))
     bar.querySelector('[data-act="response"]')!.addEventListener('click', () => this.toggleResponse())
+    bar.querySelector('[data-act="reviews"]')?.addEventListener('click', () => this.toggleReviews())
     document.body.appendChild(bar)
     this.toolbar = bar
+  }
+
+  private reviewsPanel?: ReviewsPanel
+  private toggleReviews() {
+    if (this.reviewsPanel) { this.reviewsPanel.close(); return }
+    this.reviewsPanel = new ReviewsPanel({
+      api: this.api,
+      root: this.root,
+      source: this.source,
+      onClose: () => { this.reviewsPanel = undefined },
+    })
+    this.reviewsPanel.open()
   }
 
   private toggleResponse() {

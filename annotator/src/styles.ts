@@ -192,4 +192,18 @@ export const CSS = `
 .pen-preview blockquote { border-left: 3px solid var(--pen-accent); margin: .6em 0; padding: .2em 0 .2em 12px; color: var(--pen-muted); }
 .pen-preview img { max-width: 100%; }
 .pen-preview pre { background: var(--pen-chip); padding: 10px; border-radius: 8px; overflow: auto; }
+
+/* ---- author reviews panel ---- */
+.pen-reviews { flex: 1; overflow: auto; }
+.pen-review { padding: 12px 14px; border-bottom: 1px solid var(--pen-border); }
+.pen-review-head { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.pen-md { font-size: 14px; line-height: 1.55; }
+.pen-md h1, .pen-md h2, .pen-md h3 { line-height: 1.25; }
+.pen-md blockquote { border-left: 3px solid var(--pen-accent); margin: .5em 0; padding: .1em 0 .1em 10px; color: var(--pen-muted); }
+.pen-md img { max-width: 100%; }
+.pen-md pre { background: var(--pen-chip); padding: 8px; border-radius: 6px; overflow: auto; }
+.pen-review-quotes { margin-top: 8px; display: flex; flex-wrap: wrap; gap: 6px; }
+.pen-qchip { font-size: 12px; color: var(--pen-muted); background: var(--pen-chip); border: 1px solid var(--pen-border);
+  border-radius: 12px; padding: 2px 8px; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pen-qchip:hover { border-color: var(--pen-accent); color: var(--pen-fg); }
 `
