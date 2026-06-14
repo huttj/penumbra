@@ -29,6 +29,7 @@ export const CSS = `
 /* translucent highlight reads on both light and dark backgrounds */
 ::highlight(penumbra) { background-color: rgba(255, 196, 64, 0.32); }
 ::highlight(penumbra-active) { background-color: rgba(255, 178, 43, 0.58); }
+::highlight(penumbra-draft) { background-color: rgba(120, 170, 255, 0.30); text-decoration: underline dashed; }
 
 [data-pen-ui], [data-pen-ui] * { box-sizing: border-box; }
 [data-pen-ui] {

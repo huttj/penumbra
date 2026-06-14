@@ -20,15 +20,18 @@ export class Penumbra {
   private isAuthor = false
 
   private items = new Map<string, Item>()
+  private drafts = new Map<string, { selectors: any; range: Range | null; text: string }>()
   private highlightsOn = true
   private filter: Filter = 'all'
   private focused: string | null = null
+  private hovered: string | null = null
   private narrow = false
+  private composeCtx?: { selectors: any; range: Range; ta: HTMLTextAreaElement; draftId: string | null }
+  private draftSeq = 0
 
   private layer!: HTMLElement // absolute container scrolling with the document
   private toolbar?: HTMLElement
   private loginEl?: HTMLElement
-  private addBtn?: HTMLElement
   private compose?: HTMLElement
   private tooltip?: HTMLElement
   private relayoutQueued = false
@@ -72,16 +75,25 @@ export class Penumbra {
     this.renderLogin()
     await this.loadAnnotations()
 
-    document.addEventListener('mouseup', () => setTimeout(() => this.onSelection(), 0))
+    document.addEventListener('mouseup', (e) => {
+      if ((e.target as HTMLElement).closest('[data-pen-ui]')) return
+      setTimeout(() => this.onSelection(), 0)
+    })
     document.addEventListener('mousedown', (e) => this.onDocMouseDown(e))
     document.addEventListener('click', (e) => this.onDocClick(e))
+    document.addEventListener('keydown', (e) => {
+      if (e.key !== 'Escape') return
+      if (this.compose) this.dismissCompose(false)       // Esc discards the compose box
+      else if (this.focused) { this.focused = null; this.renderAll() } // …or deselects
+    })
     window.addEventListener('resize', () => this.queueRelayout(), { passive: true })
   }
 
   async reload() {
     this.dismissCompose()
-    this.removeAddBtn()
+    this.drafts.clear()
     this.focused = null
+    this.hovered = null
     this.root = this.resolveRoot()
     this.source = this.computeSource()
     await this.loadAnnotations()
@@ -147,13 +159,20 @@ export class Penumbra {
   private renderHighlights() {
     if (!HL) return
     const hl = (window as any).CSS.highlights
-    if (!this.highlightsOn) { hl.delete('penumbra'); hl.delete('penumbra-active'); return }
+    const H = (globalThis as any).Highlight
+    if (!this.highlightsOn) { hl.delete('penumbra'); hl.delete('penumbra-active'); hl.delete('penumbra-draft'); return }
     const ranges = this.visibleComments().map((i) => i.range!).concat(
       this.emojis().filter((i) => i.range && this.passesFilter(i.anno)).map((i) => i.range!)
     )
-    hl.set('penumbra', new (globalThis as any).Highlight(...ranges))
-    const f = this.focused && this.items.get(this.focused)?.range
-    if (f) hl.set('penumbra-active', new (globalThis as any).Highlight(f)); else hl.delete('penumbra-active')
+    hl.set('penumbra', new H(...ranges))
+
+    const draftRanges = [...this.drafts.values()].map((d) => d.range).filter(Boolean) as Range[]
+    if (draftRanges.length) hl.set('penumbra-draft', new H(...draftRanges)); else hl.delete('penumbra-draft')
+
+    // Active = whatever is hovered, else focused.
+    const activeId = this.hovered ?? this.focused
+    const a = activeId && this.items.get(activeId)?.range
+    if (a) hl.set('penumbra-active', new H(a)); else hl.delete('penumbra-active')
   }
 
   private layoutRightRail() {
@@ -161,21 +180,36 @@ export class Penumbra {
     if (!this.highlightsOn) return
 
     const rootRect = this.root.getBoundingClientRect()
-    const available = window.innerWidth - rootRect.right
-    this.narrow = available < 320
-    if (this.narrow) return // in narrow mode, cards open on click instead
+    this.narrow = window.innerWidth - rootRect.right < 320
+    if (this.narrow) return // narrow screens: cards open on click instead
 
+    const list = this.visibleComments()
+    if (!list.length) return
     const railLeft = window.scrollX + rootRect.right + 24
-    let bottom = 0
-    for (const item of this.visibleComments()) {
+
+    // Build + measure all cards off-screen first.
+    const cards = list.map((item) => {
       const card = this.buildCommentCard(item, this.focused === item.anno.id, 'rail')
-      this.layer.appendChild(card)
       card.style.left = `${railLeft}px`
-      const anchorY = this.docY(item.range!)
-      const top = Math.max(anchorY, bottom + GAP)
-      card.style.top = `${top}px`
-      bottom = top + card.offsetHeight
+      card.style.top = '-9999px'
+      this.layer.appendChild(card)
+      return card
+    })
+    const h = cards.map((c) => c.offsetHeight)
+    const anchor = list.map((i) => this.docY(i.range!))
+    const pos = anchor.slice()
+    const fi = list.findIndex((i) => i.anno.id === this.focused)
+
+    if (fi >= 0) {
+      // Pin the focused card at its anchor; flow neighbours away from it.
+      pos[fi] = anchor[fi]
+      for (let i = fi + 1; i < list.length; i++) pos[i] = Math.max(anchor[i], pos[i - 1] + h[i - 1] + GAP)
+      for (let i = fi - 1; i >= 0; i--) pos[i] = Math.min(anchor[i], pos[i + 1] - h[i] - GAP)
+    } else {
+      // No focus: pack downward to remove overlaps, each as close to its anchor as it can get.
+      for (let i = 1; i < list.length; i++) pos[i] = Math.max(anchor[i], pos[i - 1] + h[i - 1] + GAP)
     }
+    cards.forEach((c, i) => (c.style.top = `${Math.max(0, pos[i])}px`))
   }
 
   private layoutLeftRail() {
@@ -212,7 +246,8 @@ export class Penumbra {
 
     const exact = (a.target.selector.find((s: any) => s.type === 'TextQuoteSelector') as any)?.exact ?? ''
     const replies = this.repliesOf(a)
-    const unread = !this.acknowledged(a)
+    // The unread marker only means something to the author, on someone else's thread.
+    const unread = this.isAuthor && !this.acknowledged(a) && !a.creator?.authored
 
     const commentHtml = (c: any, root: boolean) => {
       const avatar = c.creator?.avatar ? `<img src="${esc(c.creator.avatar)}" alt="">` : ''
@@ -237,8 +272,8 @@ export class Penumbra {
     if (expanded) {
       const mine = this.user && a.creator?.id === this.user.id
       const acts: string[] = []
-      if (this.isAuthor) acts.push(`<a data-act="ack">${this.acknowledged(a) ? 'Mark unread' : 'Acknowledge'}</a>`)
-      if (mine) { acts.push(`<a data-act="resolve">Resolve</a>`); acts.push(`<a data-act="delete">Delete</a>`) }
+      if (this.isAuthor && !a.creator?.authored) acts.push(`<a data-act="ack">${this.acknowledged(a) ? 'Mark unread' : 'Acknowledge'}</a>`)
+      if (mine) acts.push(`<a data-act="delete">Delete</a>`)
       if (acts.length) inner += `<div class="pen-actions">${acts.join('')}</div>`
       if (this.user) {
         inner += `<div class="pen-reply"><textarea placeholder="Reply…"></textarea>
@@ -249,16 +284,20 @@ export class Penumbra {
     }
     card.innerHTML = inner
 
+    card.addEventListener('mouseenter', () => { this.hovered = id; this.renderHighlights() })
+    card.addEventListener('mouseleave', () => { this.hovered = null; this.renderHighlights() })
+
     if (!expanded) {
       card.addEventListener('click', () => this.focus(id))
     } else {
       card.querySelector('[data-act="ack"]')?.addEventListener('click', () => this.toggleAck(id))
-      card.querySelector('[data-act="resolve"]')?.addEventListener('click', () => this.resolve(id))
       card.querySelector('[data-act="delete"]')?.addEventListener('click', () => this.remove(id))
       card.querySelector('[data-act="login"]')?.addEventListener('click', () => this.flashLogin())
-      card.querySelector('[data-act="send-reply"]')?.addEventListener('click', () => {
-        const ta = card.querySelector('textarea') as HTMLTextAreaElement
-        if (ta?.value.trim()) this.sendReply(id, ta.value.trim())
+      const ta = card.querySelector('textarea') as HTMLTextAreaElement | null
+      const send = () => { if (ta?.value.trim()) this.sendReply(id, ta.value.trim()) }
+      card.querySelector('[data-act="send-reply"]')?.addEventListener('click', send)
+      ta?.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send() }
       })
     }
     return card
@@ -312,10 +351,6 @@ export class Penumbra {
     await this.api.patch(id, { acknowledged: !this.acknowledged(a) }).catch((e) => alert(e.message))
     await this.loadAnnotations(); this.focus(id)
   }
-  private async resolve(id: string) {
-    await this.api.patch(id, { status: 'resolved' }).catch((e) => alert(e.message))
-    this.items.delete(id); this.focused = null; this.renderAll()
-  }
   private async remove(id: string) {
     if (!confirm('Delete this comment thread?')) return
     await this.api.remove(id)
@@ -326,62 +361,80 @@ export class Penumbra {
 
   private onSelection() {
     const sel = window.getSelection()
-    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return this.removeAddBtn()
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !sel.toString().trim()) return
     const range = sel.getRangeAt(0)
-    if (!this.root.contains(range.commonAncestorContainer) || !sel.toString().trim()) return this.removeAddBtn()
-
-    const rect = range.getBoundingClientRect()
-    this.removeAddBtn()
-    const btn = document.createElement('button')
-    btn.className = 'pen-addbtn'
-    btn.setAttribute('data-pen-ui', '')
-    btn.textContent = '💬 Comment'
-    btn.style.left = `${window.scrollX + rect.left + rect.width / 2}px`
-    btn.style.top = `${window.scrollY + rect.top}px`
-    btn.onmousedown = (e) => { e.preventDefault(); e.stopPropagation() }
-    btn.onclick = () => this.openCompose(range)
-    this.layer.appendChild(btn)
-    this.addBtn = btn
+    if (!this.root.contains(range.commonAncestorContainer)) return
+    this.openCompose(range.cloneRange()) // clone: a stored draft must not move with the selection
   }
-  private removeAddBtn() { this.addBtn?.remove(); this.addBtn = undefined }
-  private dismissCompose() { this.compose?.remove(); this.compose = undefined }
 
-  private openCompose(range: Range) {
-    if (!this.user) { this.removeAddBtn(); return this.flashLogin() }
-    const selectors = selectorsFromRange(range, this.root)
-    if (!selectors) return this.removeAddBtn()
-    const exact = (selectors.find((s) => s.type === 'TextQuoteSelector') as any)?.exact ?? ''
+  // Close the compose box. With persist=true, a non-empty box is kept as an
+  // in-memory draft (shown as a draft highlight, reopenable); empty is discarded.
+  private dismissCompose(persist = false) {
+    const ctx = this.composeCtx
+    this.compose?.remove(); this.compose = undefined; this.composeCtx = undefined
+    if (ctx) {
+      const text = ctx.ta.value.trim()
+      if (persist && text) this.drafts.set(ctx.draftId ?? `draft-${++this.draftSeq}`, { selectors: ctx.selectors, range: ctx.range, text })
+      else if (ctx.draftId) this.drafts.delete(ctx.draftId)
+    }
+    this.renderHighlights()
+  }
+
+  private openCompose(range: Range, opts?: { draftId?: string; text?: string }) {
+    if (!this.user) return this.promptSignIn(range)
+    const selectors = opts?.draftId ? this.drafts.get(opts.draftId)?.selectors : selectorsFromRange(range, this.root)
+    if (!selectors) return
+    this.dismissCompose() // discard any prior empty compose
+
     const rect = range.getBoundingClientRect()
-    this.removeAddBtn(); this.dismissCompose()
-
     const box = document.createElement('div')
     box.className = 'pen-compose'
     box.setAttribute('data-pen-ui', '')
     box.style.left = `${Math.min(window.scrollX + rect.left, window.scrollX + window.innerWidth - 312)}px`
     box.style.top = `${window.scrollY + rect.bottom + 8}px`
-    box.innerHTML = `<div class="pen-quote">${esc(exact)}</div>
-      <textarea placeholder="Add a comment…"></textarea>
+    // No quote — you just selected it, you know what it is.
+    box.innerHTML = `<textarea placeholder="Comment…  (⌘/Ctrl + ⏎ to send)"></textarea>
       <div class="pen-emojibar">${QUICK_EMOJI.map((e) => `<button data-emoji="${e}">${e}</button>`).join('')}</div>
-      <div class="pen-row"><span class="pen-title">or react ↑</span><span>
-        <button class="pen-btn ghost" data-act="cancel">Cancel</button>
-        <button class="pen-btn" data-act="post">Comment</button></span></div>`
+      <div class="pen-row"><span class="pen-title">or react ↑</span>
+        <button class="pen-btn" data-act="post">Comment</button></div>`
     const ta = box.querySelector('textarea') as HTMLTextAreaElement
-    ta.focus()
+    if (opts?.text) ta.value = opts.text
+    const post = () => { if (ta.value.trim()) this.create(selectors, ta.value.trim(), 'comment') }
+    ta.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); post() } })
     box.querySelectorAll('[data-emoji]').forEach((b) =>
       b.addEventListener('click', () => this.create(selectors, (b as HTMLElement).dataset.emoji!, 'emoji')))
-    box.querySelector('[data-act="cancel"]')!.addEventListener('click', () => this.dismissCompose())
-    box.querySelector('[data-act="post"]')!.addEventListener('click', () => {
-      if (ta.value.trim()) this.create(selectors, ta.value.trim(), 'comment')
-    })
+    box.querySelector('[data-act="post"]')!.addEventListener('click', post)
     this.layer.appendChild(box)
     this.compose = box
+    this.composeCtx = { selectors, range, ta, draftId: opts?.draftId ?? null }
+    ta.focus()
+  }
+
+  private promptSignIn(range: Range) {
+    this.dismissCompose()
+    const rect = range.getBoundingClientRect()
+    const box = document.createElement('div')
+    box.className = 'pen-compose'; box.setAttribute('data-pen-ui', '')
+    box.style.left = `${Math.min(window.scrollX + rect.left, window.scrollX + window.innerWidth - 312)}px`
+    box.style.top = `${window.scrollY + rect.bottom + 8}px`
+    box.innerHTML = `<div class="pen-title" style="margin-bottom:8px">Sign in to comment on this.</div>
+      <div class="pen-row"><span></span><button class="pen-btn" data-act="signin">Sign in</button></div>`
+    box.querySelector('[data-act="signin"]')!.addEventListener('click', () => { this.dismissCompose(); this.flashLogin() })
+    this.layer.appendChild(box); this.compose = box
+  }
+
+  private reopenDraft(id: string) {
+    const d = this.drafts.get(id)
+    if (d?.range) this.openCompose(d.range, { draftId: id, text: d.text })
   }
 
   private async create(selectors: any, text: string, kind: 'comment' | 'emoji') {
+    const draftId = this.composeCtx?.draftId
     try {
       const anno = await this.api.create({ source: this.source, selector: selectors }, text, { kind, docVersion: this.docVersion })
       this.items.set(anno.id, { anno, range: rangeFromSelectors(anno.target.selector, this.root) })
-      this.dismissCompose()
+      if (draftId) this.drafts.delete(draftId)
+      this.compose?.remove(); this.compose = undefined; this.composeCtx = undefined
       window.getSelection()?.removeAllRanges()
       if (kind === 'comment') this.focused = anno.id
       this.renderAll()
@@ -392,21 +445,25 @@ export class Penumbra {
 
   private onDocMouseDown(e: MouseEvent) {
     if ((e.target as HTMLElement).closest('[data-pen-ui]')) return
-    this.dismissCompose()
+    this.dismissCompose(true) // keep what you typed as a draft
     this.layer.querySelectorAll('.pen-card.floating').forEach((n) => n.remove())
   }
 
   private onDocClick(e: MouseEvent) {
     if ((e.target as HTMLElement).closest('[data-pen-ui]')) return
-    for (const item of this.comments()) {
-      if (!item.range) continue
-      for (const r of item.range.getClientRects()) {
-        if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) {
-          this.focus(item.anno.id)
-          return
-        }
-      }
-    }
+    if (window.getSelection()?.toString().trim()) return // a fresh selection — compose is opening
+    // Resume a draft if its highlight was clicked.
+    for (const [id, d] of this.drafts) if (d.range && this.hitsRange(e, d.range)) return this.reopenDraft(id)
+    // Focus a comment if its highlight was clicked.
+    for (const item of this.comments()) if (item.range && this.hitsRange(e, item.range)) return this.focus(item.anno.id)
+    // Otherwise, clicking the page deselects.
+    if (this.focused) { this.focused = null; this.renderAll() }
+  }
+
+  private hitsRange(e: MouseEvent, range: Range): boolean {
+    for (const r of range.getClientRects())
+      if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom) return true
+    return false
   }
 
   // ---- toolbar -------------------------------------------------------------
