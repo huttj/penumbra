@@ -1,7 +1,25 @@
 import { Api, type User } from './api'
 import { locateText, resolveQuoteStrict, selectorsFromRange } from './anchor'
 import { extractBlockquotes, isEmojiNote, parseResponse, renderMarkdown, serializeResponse } from './markdown'
-import { ResponsePanel, ReviewsPanel } from './response'
+import { ReviewsPanel } from './response'
+
+// The rich-text editor (TipTap, ~600KB) is loaded on demand from a separate
+// bundle the first time the response panel opens.
+type ResponsePanelLike = { open(): void; close(): void; appendQuote(range: Range): void }
+type ResponsePanelCtor = new (o: { api: Api; root: HTMLElement; source: string; commitSha: string | null; userName: string; onClose: () => void }) => ResponsePanelLike
+
+async function loadResponsePanel(): Promise<ResponsePanelCtor> {
+  const w = window as any
+  if (w.__PenumbraResponsePanel) return w.__PenumbraResponsePanel
+  await new Promise<void>((resolve, reject) => {
+    const core = document.querySelector('script[src*="penumbra.js"]') as HTMLScriptElement | null
+    const url = core ? core.src.replace(/penumbra\.js(\?.*)?$/, 'penumbra-editor.js') : '/static/penumbra-editor.js'
+    const s = document.createElement('script')
+    s.src = url; s.onload = () => resolve(); s.onerror = () => reject(new Error('editor failed to load'))
+    document.head.appendChild(s)
+  })
+  return w.__PenumbraResponsePanel
+}
 import { CSS } from './styles'
 
 type Config = { api: string; source?: string; sourceBase?: string; root?: string; commitSha?: string }
@@ -31,7 +49,7 @@ export class Penumbra {
   private hoverRaf = false
   private relayoutQueued = false
 
-  private responsePanel?: ResponsePanel
+  private responsePanel?: ResponsePanelLike
   private reviewsPanel?: ReviewsPanel
   private layer!: HTMLElement
   private toolbar?: HTMLElement
@@ -408,12 +426,15 @@ export class Penumbra {
     this.reviewsPanel.open()
   }
 
-  private toggleResponse() {
+  private async toggleResponse() {
     if (this.responsePanel) { this.responsePanel.close(); return }
     if (!this.user) return this.flashLogin()
+    let RP: ResponsePanelCtor
     this.toolbar?.querySelector('[data-act="response"]')?.classList.add('active')
+    try { RP = await loadResponsePanel() } catch { this.toolbar?.querySelector('[data-act="response"]')?.classList.remove('active'); alert('Could not load the editor.'); return }
+    if (this.responsePanel) return // a double-click already opened it while loading
     this.layer.querySelectorAll('.pen-card.rail, .pen-emote').forEach((n) => n.remove())
-    this.responsePanel = new ResponsePanel({
+    this.responsePanel = new RP({
       api: this.api, root: this.root, source: this.source, commitSha: this.commitSha, userName: this.user.name ?? 'you',
       onClose: () => {
         this.responsePanel = undefined

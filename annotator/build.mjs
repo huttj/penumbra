@@ -1,37 +1,43 @@
 import esbuild from 'esbuild'
 import { copyFileSync, existsSync, mkdirSync } from 'node:fs'
 
-// Also publish the bundle into Quartz's static dir, if the site is present.
 const SITE_STATIC = '../site/quartz/static'
-const copyToSite = {
-  name: 'copy-to-site',
-  setup(build) {
-    build.onEnd(() => {
-      if (existsSync('../site/quartz')) {
-        mkdirSync(SITE_STATIC, { recursive: true })
-        copyFileSync('demo/penumbra.js', `${SITE_STATIC}/penumbra.js`)
-        console.log(`→ copied to ${SITE_STATIC}/penumbra.js`)
-      }
-    })
-  },
+const watch = process.argv.includes('--watch')
+
+// Two bundles: the small core, and the lazy-loaded TipTap editor.
+const entries = [
+  { entry: 'src/index.ts', name: 'penumbra.js' },
+  { entry: 'src/editor.ts', name: 'penumbra-editor.js' },
+]
+
+function copyPlugin(name) {
+  return {
+    name: 'copy-to-site',
+    setup(build) {
+      build.onEnd(() => {
+        if (existsSync('../site/quartz')) {
+          mkdirSync(SITE_STATIC, { recursive: true })
+          copyFileSync(`demo/${name}`, `${SITE_STATIC}/${name}`)
+          console.log(`→ copied ${name} to site`)
+        }
+      })
+    },
+  }
 }
 
-const opts = {
-  entryPoints: ['src/index.ts'],
-  bundle: true,
-  format: 'iife',
-  target: 'es2021',
-  outfile: 'demo/penumbra.js',
-  sourcemap: true,
-  minify: !process.argv.includes('--watch'),
-  logLevel: 'info',
-  plugins: [copyToSite],
+for (const e of entries) {
+  const opts = {
+    entryPoints: [e.entry],
+    outfile: `demo/${e.name}`,
+    bundle: true,
+    format: 'iife',
+    target: 'es2021',
+    sourcemap: true,
+    minify: !watch,
+    logLevel: 'info',
+    plugins: [copyPlugin(e.name)],
+  }
+  if (watch) { const ctx = await esbuild.context(opts); await ctx.watch() }
+  else await esbuild.build(opts)
 }
-
-if (process.argv.includes('--watch')) {
-  const ctx = await esbuild.context(opts)
-  await ctx.watch()
-  console.log('watching…')
-} else {
-  await esbuild.build(opts)
-}
+if (watch) console.log('watching…')
