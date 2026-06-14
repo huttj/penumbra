@@ -74,9 +74,12 @@ export const CSS = `
 .pen-quote {
   font-size: 12px; color: var(--pen-muted); border-left: 3px solid var(--pen-accent);
   padding: 6px 10px; margin: 10px 10px 0; background: var(--pen-chip);
-  border-radius: 0 6px 6px 0;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  border-radius: 0 6px 6px 0; white-space: pre-wrap; word-wrap: break-word;
 }
+/* clamp only in the compact card; expanded shows everything */
+.pen-card.compact .pen-quote { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.pen-muted { color: var(--pen-muted); font-style: italic; }
+.pen-card .pen-note { min-height: 80px; }
 .pen-thread { padding: 8px 12px 10px; }
 .pen-comment { padding: 6px 0; }
 .pen-comment + .pen-comment { border-top: 1px solid var(--pen-border); }

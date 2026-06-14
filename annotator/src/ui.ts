@@ -140,7 +140,7 @@ export class Penumbra {
 
   private blockById = (id: string | null) => this.blocks.find((b) => b.id === id)
   private docY = (r: Range): number => r.getBoundingClientRect().top + window.scrollY
-  private cards = () => this.blocks.filter((b) => !b.isEmoji && b.note.trim() && b.ranges.length)
+  private cards = () => this.blocks.filter((b) => !b.isEmoji && b.ranges.length)
   private chips = () => this.blocks.filter((b) => b.isEmoji && b.ranges.length)
 
   // ---- rendering -----------------------------------------------------------
@@ -229,7 +229,10 @@ export class Penumbra {
 
     const quoteHtml = blk.quotes.map((q) => `<div class="pen-quote">${esc(q)}</div>`).join('')
     if (!expanded) {
-      card.innerHTML = `${quoteHtml}<div class="pen-thread"><div class="pen-body pen-md">${renderMarkdown(blk.note)}</div></div>`
+      const noteHtml = blk.note.trim()
+        ? `<div class="pen-body pen-md">${renderMarkdown(blk.note)}</div>`
+        : `<div class="pen-body pen-muted">Add a comment…</div>`
+      card.innerHTML = `${quoteHtml}<div class="pen-thread">${noteHtml}</div>`
       card.addEventListener('click', () => this.focus(blk.id))
     } else {
       card.innerHTML = `${quoteHtml}

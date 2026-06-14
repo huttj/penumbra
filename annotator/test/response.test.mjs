@@ -25,6 +25,11 @@ const { renderMarkdown, parseResponse, serializeResponse, isEmojiNote } = await 
   ok('parse: quote + owned note', blocks[0].quotes[0] === "What's causing the big crunch?" && blocks[0].note === 'Good question!')
   ok('parse: emoji note', isEmojiNote(blocks[1].note) === true)
   ok('parse: text note is not emoji', isEmojiNote(blocks[0].note) === false)
+  ok('emoji: multi-emoji is emoji', isEmojiNote('👍🔥') === true)
+  ok('emoji: emoji with variation selector', isEmojiNote('☺️') === true)
+  ok('emoji: emoji + text is NOT emoji', isEmojiNote('☺️ jhvkhj') === false)
+  ok('emoji: lone punctuation is NOT emoji', isEmojiNote('?') === false)
+  ok('emoji: single letter is NOT emoji', isEmojiNote('k') === false)
   // adjacent quotes (blank-separated, no prose between) group into one block
   const adj = parseResponse(`> quote one here\n\n> quote two here\n\nshared note`)
   ok('parse: adjacent quotes grouped', adj.blocks.length === 1 && adj.blocks[0].quotes.length === 2)

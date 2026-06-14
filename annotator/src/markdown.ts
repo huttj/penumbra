@@ -63,10 +63,14 @@ export function serializeResponse(preamble: string, blocks: RBlock[]): string {
   return parts.join('\n\n') + '\n'
 }
 
-// A note that's just an emoji (or a few) renders as a left-rail chip, not a card.
+// A note that's ONLY emoji (one or more) renders as a left-rail chip, not a card.
 export function isEmojiNote(note: string): boolean {
   const t = note.trim()
-  return t.length > 0 && t.length <= 8 && !/[a-z0-9]/i.test(t)
+  if (!t) return false
+  // strip emoji, flag/skin-tone/ZWJ/variation selectors and whitespace; emoji-only
+  // means nothing is left and there was at least one pictographic.
+  const stripped = t.replace(/[\p{Extended_Pictographic}\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}️‍\s]/gu, '')
+  return stripped === '' && /\p{Extended_Pictographic}/u.test(t)
 }
 
 function inline(s: string): string {
