@@ -16,6 +16,7 @@ export type Env = {
   GITHUB_TOKEN?: string    // fine-grained PAT (Contents: R/W) for write-back; set as a secret
   GITHUB_REPO?: string     // "owner/repo", e.g. "huttj/penumbra"
   GITHUB_BRANCH?: string   // default "main"
+  UPLOADS?: R2Bucket       // pasted-image storage
 }
 
 export function authorIds(env: Env): string[] {

@@ -25,6 +25,32 @@ app.get('/', (c) => c.json({ name: 'penumbra-api', ok: true }))
 app.route('/auth', auth)
 app.route('/responses', responses)
 
+// ---- image uploads (R2) ---------------------------------------------------
+
+app.post('/upload', async (c) => {
+  const user = await currentUser(c)
+  if (!user) return c.json({ error: 'sign in' }, 401)
+  if (!c.env.UPLOADS) return c.json({ error: 'uploads not configured' }, 501)
+  const ct = c.req.header('Content-Type') ?? ''
+  if (!ct.startsWith('image/')) return c.json({ error: 'images only' }, 400)
+  const body = await c.req.arrayBuffer()
+  if (body.byteLength > 8 * 1024 * 1024) return c.json({ error: 'image too large (8MB max)' }, 413)
+  const ext = (ct.split('/')[1] || 'bin').split(';')[0].replace(/[^a-z0-9]/gi, '') || 'bin'
+  const key = `${uuid()}.${ext}`
+  await c.env.UPLOADS.put(key, body, { httpMetadata: { contentType: ct } })
+  return c.json({ url: `${apiBase(c)}/uploads/${key}` })
+})
+
+app.get('/uploads/:key', async (c) => {
+  if (!c.env.UPLOADS) return c.text('not configured', 501)
+  const obj = await c.env.UPLOADS.get(c.req.param('key'))
+  if (!obj) return c.text('not found', 404)
+  const h = new Headers()
+  obj.writeHttpMetadata(h)
+  h.set('Cache-Control', 'public, max-age=31536000, immutable')
+  return new Response(obj.body, { headers: h })
+})
+
 app.get('/me', async (c) => {
   const user = await currentUser(c)
   return c.json({ user, isAuthor: isAuthor(c.env, user?.id) })

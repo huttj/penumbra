@@ -123,6 +123,15 @@ export class Api {
     return j
   }
 
+  // Upload a pasted image; returns its served URL. Falls back to base64 at the call site on failure.
+  async uploadImage(file: File): Promise<string> {
+    const headers: Record<string, string> = { 'Content-Type': file.type || 'application/octet-stream' }
+    if (this.token) headers['Authorization'] = `Bearer ${this.token}`
+    const r = await fetch(`${this.base}/upload`, { method: 'POST', headers, body: file })
+    if (!r.ok) throw new Error(`upload failed (${r.status})`)
+    return (await r.json()).url
+  }
+
   loginUrl(provider: 'github' | 'google'): string {
     return `${this.base}/auth/${provider}/start?return=${encodeURIComponent(location.href)}`
   }

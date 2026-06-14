@@ -16,6 +16,11 @@ database_name = "penumbra"
 database_id = "28d20030-ff71-47fd-a028-70375bab004a"
 migrations_dir = "migrations"
 
+# Pasted-image storage. Create with: wrangler r2 bucket create penumbra-uploads
+[[r2_buckets]]
+binding = "UPLOADS"
+bucket_name = "penumbra-uploads"
+
 # ---- production values (used by `wrangler deploy`) ----
 # Local `wrangler dev` overrides these via worker/.dev.vars (gitignored).
 [vars]

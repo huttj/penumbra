@@ -21,6 +21,7 @@ without it, nobody (including you) can sign in.
 cd worker
 npx wrangler d1 create penumbra          # → copy the database_id into wrangler.toml
 npx wrangler d1 migrations apply penumbra --remote
+npx wrangler r2 bucket create penumbra-uploads   # pasted-image storage
 npx wrangler secret put ZEPTOMAIL_TOKEN  # paste your ZeptoMail Send Mail token
 npx wrangler deploy                      # also provisions the api.penumbra.page custom domain
 curl https://api.penumbra.page/          # → {"name":"penumbra-api","ok":true}

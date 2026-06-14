@@ -120,12 +120,7 @@ export class ResponsePanel {
     for (const it of items) {
       if (it.type.startsWith('image/')) {
         const file = it.getAsFile()
-        if (file) {
-          const reader = new FileReader()
-          reader.onload = () => this.editor.chain().focus().setImage({ src: String(reader.result) }).run()
-          reader.readAsDataURL(file)
-          return true
-        }
+        if (file) { void insertImage(this.editor, file, (f) => this.api.uploadImage(f)); return true }
       }
     }
     return false
@@ -212,8 +207,18 @@ export class ResponsePanel {
   }
 }
 
+// Upload the image and insert its URL; fall back to an inline base64 data-URI.
+async function insertImage(editor: Editor, file: File, upload?: (f: File) => Promise<string>) {
+  if (upload) {
+    try { editor.chain().focus().setImage({ src: await upload(file) }).run(); return } catch { /* fall through */ }
+  }
+  const r = new FileReader()
+  r.onload = () => editor.chain().focus().setImage({ src: String(r.result) }).run()
+  r.readAsDataURL(file)
+}
+
 // A small standalone rich editor for inline margin-card comment editing.
-export function createMiniEditor(mount: HTMLElement, markdown: string, opts: { onChange: (md: string) => void }) {
+export function createMiniEditor(mount: HTMLElement, markdown: string, opts: { onChange: (md: string) => void; uploadImage?: (f: File) => Promise<string> }) {
   const editor = new Editor({
     element: mount,
     extensions: [
@@ -231,7 +236,7 @@ export function createMiniEditor(mount: HTMLElement, markdown: string, opts: { o
           for (const it of items) {
             if (it.type.startsWith('image/')) {
               const f = it.getAsFile()
-              if (f) { const r = new FileReader(); r.onload = () => editor.chain().focus().setImage({ src: String(r.result) }).run(); r.readAsDataURL(f); return true }
+              if (f) { void insertImage(editor, f, opts.uploadImage); return true }
             }
           }
         }

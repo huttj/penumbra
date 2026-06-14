@@ -8,7 +8,7 @@ import { ReviewsPanel } from './response'
 type ResponsePanelLike = { open(): void; close(): void; appendQuote(range: Range): void }
 type ResponsePanelCtor = new (o: { api: Api; root: HTMLElement; source: string; commitSha: string | null; userName: string; onClose: () => void }) => ResponsePanelLike
 type MiniEditor = { destroy(): void; getMarkdown(): string; focus(): void }
-type MiniEditorFactory = (mount: HTMLElement, markdown: string, opts: { onChange: (md: string) => void }) => MiniEditor
+type MiniEditorFactory = (mount: HTMLElement, markdown: string, opts: { onChange: (md: string) => void; uploadImage?: (f: File) => Promise<string> }) => MiniEditor
 
 let editorBundlePromise: Promise<void> | null = null
 function ensureEditorBundle(): Promise<void> {
@@ -263,6 +263,7 @@ export class Penumbra {
     mount.textContent = '' // clear the rendered placeholder before mounting the editor
     this.cardEditor = factory(mount, blk.note, {
       onChange: (md) => { blk.note = md; this.queueReposition(); this.saveQuiet(el) },
+      uploadImage: (f) => this.api.uploadImage(f),
     })
     this.cardEditor.focus()
   }
