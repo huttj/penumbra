@@ -23,4 +23,4 @@ SITE_ORIGIN = "https://penumbra.page"        # CORS: the static site origin
 PUBLIC_API_BASE = "https://api.penumbra.page" # this Worker's public URL (annotation ids)
 DEV_LOGIN = "false"                           # disable the /auth/dev test endpoint in prod
 MAIL_FROM = "Penumbra <noreply@penumbra.page>"  # must be on your ZeptoMail-verified domain
-AUTHOR_IDS = "email:squashai@gmail.com"       # your identity → replies badged "author"
+AUTHOR_IDS = "email:joshua@huttj.com"         # your identity → replies badged "author"
