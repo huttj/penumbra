@@ -64,7 +64,7 @@ export class ResponsePanel {
       <div class="pen-preview" data-preview hidden></div>`
     document.body.appendChild(el)
     this.el = el
-    pushAside(el.offsetWidth)
+    pushAside()
     this.ta = el.querySelector('[data-essay]') as HTMLTextAreaElement
     this.ta.value = this.body
 
@@ -237,7 +237,7 @@ export class ReviewsPanel {
       a.addEventListener('click', () => this.focusQuote(+(a as HTMLElement).dataset.ri!, +(a as HTMLElement).dataset.qi!)))
     document.body.appendChild(el)
     this.el = el
-    pushAside(el.offsetWidth)
+    pushAside()
   }
 
   private focusQuote(ri: number, qi: number) {
@@ -262,12 +262,9 @@ const fmtDate = (iso: string): string => { try { return new Date(iso).toLocaleDa
 const trunc = (s: string, n = 60): string => (s.length > n ? s.slice(0, n) + '…' : s)
 
 // Push the page aside so a panel docks beside content instead of overlapping it.
-function pushAside(px: number) {
+function pushAside() {
   document.body.classList.add('pen-panel-open')
-  document.body.style.transition = 'margin-right .2s ease'
-  document.body.style.marginRight = `${px}px`
 }
 function unpushAside() {
   document.body.classList.remove('pen-panel-open')
-  document.body.style.marginRight = ''
 }
