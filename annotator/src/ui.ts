@@ -394,7 +394,7 @@ export class Penumbra {
     const box = document.createElement('div')
     box.className = 'pen-compose'
     box.setAttribute('data-pen-ui', '')
-    box.style.left = `${Math.min(window.scrollX + rect.left, window.scrollX + window.innerWidth - 312)}px`
+    box.style.left = `${Math.min(window.scrollX + rect.left, window.scrollX + window.innerWidth - 372)}px`
     box.style.top = `${window.scrollY + rect.bottom + 8}px`
     // No quote — you just selected it, you know what it is.
     box.innerHTML = `<textarea placeholder="Comment…  (⌘/Ctrl + ⏎ to send)"></textarea>
@@ -420,7 +420,7 @@ export class Penumbra {
     const rect = range.getBoundingClientRect()
     const box = document.createElement('div')
     box.className = 'pen-compose'; box.setAttribute('data-pen-ui', '')
-    box.style.left = `${Math.min(window.scrollX + rect.left, window.scrollX + window.innerWidth - 312)}px`
+    box.style.left = `${Math.min(window.scrollX + rect.left, window.scrollX + window.innerWidth - 372)}px`
     box.style.top = `${window.scrollY + rect.bottom + 8}px`
     box.innerHTML = `<div class="pen-title" style="margin-bottom:8px">Sign in to comment on this.</div>
       <div class="pen-row"><span></span><button class="pen-btn" data-act="signin">Sign in</button></div>`

@@ -111,14 +111,15 @@ export const CSS = `
 .pen-btn.ghost:hover { background: var(--pen-chip-hover); }
 
 /* ---- compose popover (on text selection) ---- */
-.pen-compose { position: absolute; width: 300px; z-index: 2147483646;
+.pen-compose { position: absolute; width: 360px; max-width: calc(100vw - 24px); z-index: 2147483646;
   background: var(--pen-bg); border: 1px solid var(--pen-border); border-radius: 11px;
   box-shadow: var(--pen-shadow); padding: 10px; }
 .pen-composebar { margin-top: 8px; display: flex; gap: 8px; align-items: center; justify-content: space-between; }
-.pen-emojibar { display: flex; gap: 4px; }
-.pen-emojibar button { font-size: 18px; background: var(--pen-chip); border: 1px solid var(--pen-border);
-  border-radius: 8px; padding: 3px 7px; cursor: pointer; line-height: 1.2; }
+.pen-emojibar { display: flex; gap: 3px; flex-wrap: wrap; min-width: 0; }
+.pen-emojibar button { font-size: 16px; background: var(--pen-chip); border: 1px solid var(--pen-border);
+  border-radius: 8px; padding: 2px 6px; cursor: pointer; line-height: 1.25; }
 .pen-emojibar button:hover { background: var(--pen-chip-hover); transform: scale(1.08); }
+.pen-composebar .pen-btn { flex-shrink: 0; }
 
 .pen-addbtn {
   position: absolute; z-index: 2147483646; transform: translate(-50%, -118%);
