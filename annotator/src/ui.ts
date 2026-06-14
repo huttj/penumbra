@@ -25,6 +25,7 @@ export class Penumbra {
   private filter: Filter = 'all'
   private focused: string | null = null
   private hovered: string | null = null
+  private hoverRaf = false
   private narrow = false
   private composeCtx?: { selectors: any; range: Range; ta: HTMLTextAreaElement; draftId: string | null }
   private draftSeq = 0
@@ -81,6 +82,7 @@ export class Penumbra {
     })
     document.addEventListener('mousedown', (e) => this.onDocMouseDown(e))
     document.addEventListener('click', (e) => this.onDocClick(e))
+    document.addEventListener('mousemove', (e) => this.onMouseMove(e), { passive: true })
     document.addEventListener('keydown', (e) => {
       if (e.key !== 'Escape') return
       if (this.compose) this.dismissCompose(false)       // Esc discards the compose box
@@ -229,9 +231,10 @@ export class Penumbra {
       chip.className = 'pen-emote'
       chip.setAttribute('data-pen-ui', '')
       chip.textContent = a.body?.[0]?.value ?? '⭐'
+      chip.dataset.annoId = a.id
       const who = `${a.creator?.name ?? 'someone'} reacted`
-      chip.addEventListener('mouseenter', () => this.showTooltip(chip, who))
-      chip.addEventListener('mouseleave', () => this.hideTooltip())
+      chip.addEventListener('mouseenter', () => { this.setHovered(a.id); this.showTooltip(chip, who) })
+      chip.addEventListener('mouseleave', () => { this.setHovered(null); this.hideTooltip() })
       this.layer.appendChild(chip)
       const top = Math.max(this.docY(item.range!), bottom + 6)
       chip.style.left = `${x}px`
@@ -278,18 +281,18 @@ export class Penumbra {
       const acts: string[] = []
       if (this.isAuthor && !a.creator?.authored) acts.push(`<a data-act="ack">${this.acknowledged(a) ? 'Mark unread' : 'Acknowledge'}</a>`)
       if (mine) acts.push(`<a data-act="delete">Delete</a>`)
-      if (acts.length) inner += `<div class="pen-actions">${acts.join('')}</div>`
+      const left = `<span class="pen-foot">${acts.join('')}</span>`
       if (this.user) {
         inner += `<div class="pen-reply"><textarea placeholder="Reply…"></textarea>
-          <div class="pen-row"><span></span><button class="pen-btn" data-act="send-reply">Reply</button></div></div>`
+          <div class="pen-row">${left}<button class="pen-btn" data-act="send-reply">Reply</button></div></div>`
       } else {
-        inner += `<div class="pen-actions"><a data-act="login">Sign in to reply</a></div>`
+        inner += `<div class="pen-reply"><div class="pen-row">${left}<a class="pen-btn ghost" data-act="login" style="text-decoration:none">Sign in to reply</a></div></div>`
       }
     }
     card.innerHTML = inner
 
-    card.addEventListener('mouseenter', () => { this.hovered = id; this.renderHighlights() })
-    card.addEventListener('mouseleave', () => { this.hovered = null; this.renderHighlights() })
+    card.addEventListener('mouseenter', () => this.setHovered(id))
+    card.addEventListener('mouseleave', () => this.setHovered(null))
 
     if (!expanded) {
       card.addEventListener('click', () => this.focus(id))
@@ -318,6 +321,29 @@ export class Penumbra {
     if (this.narrow) this.openFloatingCard(id)
     else this.renderAll()
     this.renderHighlights()
+  }
+
+  // Bidirectional emphasis: hovering a chip/card/highlight emphasizes its
+  // counterpart (the text highlight goes 'active'; the chip/card gets .pen-emph).
+  private setHovered(id: string | null) {
+    if (this.hovered === id) return
+    this.hovered = id
+    this.layer.querySelectorAll<HTMLElement>('[data-anno-id]').forEach((el) =>
+      el.classList.toggle('pen-emph', el.dataset.annoId === id))
+    this.renderHighlights()
+  }
+
+  private onMouseMove(e: MouseEvent) {
+    if (this.hoverRaf) return
+    this.hoverRaf = true
+    requestAnimationFrame(() => {
+      this.hoverRaf = false
+      if ((e.target as HTMLElement)?.closest?.('[data-pen-ui]')) return // chip/card sets its own hover
+      let found: string | null = null
+      for (const item of this.comments()) if (item.range && this.hitsRange(e, item.range)) { found = item.anno.id; break }
+      if (!found) for (const item of this.emojis()) if (item.range && this.hitsRange(e, item.range)) { found = item.anno.id; break }
+      this.setHovered(found)
+    })
   }
 
   private nav(delta: number) {

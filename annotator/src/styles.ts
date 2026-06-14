@@ -68,6 +68,7 @@ export const CSS = `
 .pen-card.compact { cursor: pointer; }
 .pen-card.compact:hover { border-color: var(--pen-accent); }
 .pen-card.focused { box-shadow: 0 0 0 2px var(--pen-accent), var(--pen-shadow); }
+.pen-card.pen-emph { border-color: var(--pen-accent); }
 .pen-card.floating { position: absolute; }
 
 .pen-quote {
@@ -94,6 +95,11 @@ export const CSS = `
 .pen-actions { display: flex; gap: 12px; flex-wrap: wrap; padding: 6px 12px 10px; }
 .pen-actions a { font-size: 12px; color: var(--pen-accent); cursor: pointer; text-decoration: none; }
 .pen-actions a:hover { text-decoration: underline; }
+/* bottom-left action group, across from the Reply button */
+.pen-foot { display: flex; gap: 14px; align-items: center; }
+.pen-foot a { font-size: 12px; color: var(--pen-muted); cursor: pointer; text-decoration: none; }
+.pen-foot a:hover { text-decoration: underline; color: var(--pen-accent); }
+.pen-foot a[data-act="delete"]:hover { color: var(--pen-unread); }
 
 .pen-reply { padding: 0 12px 12px; }
 .pen-reply textarea, .pen-compose textarea {
@@ -134,6 +140,7 @@ export const CSS = `
   padding: 1px 6px; font-size: 14px; box-shadow: var(--pen-shadow); white-space: nowrap;
 }
 .pen-emote .pen-emote-count { font-size: 11px; color: var(--pen-muted); margin-left: 2px; }
+.pen-emote.pen-emph { border-color: var(--pen-accent); transform: scale(1.18); box-shadow: 0 0 0 2px var(--pen-accent), var(--pen-shadow); }
 .pen-tooltip {
   position: absolute; z-index: 2147483647; background: var(--pen-fg); color: var(--pen-bg);
   font-size: 12px; padding: 4px 8px; border-radius: 6px; box-shadow: var(--pen-shadow);
