@@ -37,21 +37,48 @@ export function parseResponse(md: string): { preamble: string; blocks: RBlock[] 
     while (i < lines.length && isQ(lines[i])) { q.push(lines[i].replace(/^\s*>\s?/, '')); i++ }
     const note: string[] = []
     while (i < lines.length && !isQ(lines[i])) { note.push(lines[i]); i++ }
-    blocks.push({ quotes: [q.join(' ').trim()], note: note.join('\n').trim() })
+    // Drop the leading gap blank(s) after the quote, then exactly ONE structural
+    // trailing blank (the inter-block separator / file-final newline). Any trailing
+    // blank lines beyond that are the reader's own — kept so editors round-trip them.
+    while (note.length && note[0].trim() === '') note.shift()
+    if (note.length && note[note.length - 1].trim() === '') note.pop()
+    blocks.push({ quotes: [q.join(' ').trim()], note: note.join('\n') })
   }
   return { preamble: preamble.join('\n').trim(), blocks }
 }
 
-// Round-trip the structure back to markdown.
+// Round-trip the structure back to markdown. A note keeps its own trailing blank
+// lines (so the editor can restore them); only leading whitespace is dropped.
 export function serializeResponse(preamble: string, blocks: RBlock[]): string {
   const parts: string[] = []
   if (preamble.trim()) parts.push(preamble.trim())
   for (const b of blocks) {
-    if (!b.quotes.length && !b.note.trim()) continue
+    const note = b.note.replace(/^\n+/, '')
+    if (!b.quotes.join('').trim() && !note.trim()) continue
     const qs = b.quotes.map((q) => `> ${q.replace(/\n/g, ' ')}`).join('\n>\n')
-    parts.push(b.note.trim() ? `${qs}\n\n${b.note.trim()}` : qs)
+    parts.push(note ? `${qs}\n\n${note}` : qs)
   }
   return parts.join('\n\n') + '\n'
+}
+
+// Split a note into its LEADING emoji(s) (reactions → left chips) and the
+// remaining text (the comment → right card). "👍🔥 Good point" → ['👍','🔥'] + "Good point".
+export function splitLeadingEmojis(note: string): { emojis: string[]; text: string } {
+  const t = note ?? ''
+  const emojis: string[] = []
+  let idx = 0
+  const Seg = (Intl as any).Segmenter
+  if (typeof Seg === 'function') {
+    for (const { segment } of new Seg('en', { granularity: 'grapheme' }).segment(t)) {
+      if (/^\s+$/.test(segment)) { idx += segment.length; continue }
+      if (/\p{Extended_Pictographic}/u.test(segment)) { emojis.push(segment); idx += segment.length; continue }
+      break
+    }
+  } else {
+    const m = /^((?:\p{Extended_Pictographic}(?:[️‍\u{1F3FB}-\u{1F3FF}]|\p{Extended_Pictographic})*|\s)+)/u.exec(t)
+    if (m) { idx = m[0].length; for (const ch of [...m[0]]) if (/\p{Extended_Pictographic}/u.test(ch)) emojis.push(ch) }
+  }
+  return { emojis, text: t.slice(idx) }
 }
 
 // A note that's ONLY emoji (one or more) renders as a left-rail chip, not a card.

@@ -15,7 +15,18 @@ let pass = 0, fail = 0
 const ok = (n, c) => { c ? pass++ : (fail++, console.error('  ✗ ' + n)); if (c) console.log('  ✓ ' + n) }
 
 // ---- markdown (no DOM) ----
-const { renderMarkdown, parseResponse, serializeResponse, isEmojiNote } = await import('./.tmp/markdown.mjs')
+const { renderMarkdown, parseResponse, serializeResponse, isEmojiNote, splitLeadingEmojis } = await import('./.tmp/markdown.mjs')
+
+// leading-emoji split (emoji reactions + comment in one note)
+{
+  const a = splitLeadingEmojis('👍🔥 Good point')
+  ok('split: leading emojis extracted', a.emojis.length === 2 && a.emojis[0] === '👍')
+  ok('split: text after emojis', a.text === 'Good point')
+  const b = splitLeadingEmojis('Just text')
+  ok('split: no leading emoji', b.emojis.length === 0 && b.text === 'Just text')
+  const c = splitLeadingEmojis('🔥')
+  ok('split: emoji only → no text', c.emojis.length === 1 && c.text === '')
+}
 
 // response doc <-> blocks
 {
@@ -42,6 +53,25 @@ const { renderMarkdown, parseResponse, serializeResponse, isEmojiNote } = await 
   // editing a note then serializing
   blocks[0].note = 'Edited note.'
   ok('serialize reflects edited note', serializeResponse(preamble, blocks).includes('Edited note.'))
+}
+
+// trailing blank lines in a note survive a round-trip (editors restore them) and
+// are idempotent after the first save; renders still ignore them.
+{
+  const docs = [
+    `> quote one here\n\nGood point\n\n`,                       // trailing blanks, last block
+    `> q one here\n\nNote A\n\n\n> q two here\n\nNote B`,       // trailing blank, middle block
+  ]
+  for (const d of docs) {
+    const p = parseResponse(d)
+    const once = serializeResponse(p.preamble, p.blocks)
+    const p2 = parseResponse(once)
+    const twice = serializeResponse(p2.preamble, p2.blocks)
+    ok('trailing-break round-trip is idempotent', once === twice)
+  }
+  const keep = parseResponse(`> quote one here\n\nGood point\n\n`)
+  ok('trailing blanks kept on the note', keep.blocks[0].note === 'Good point\n')
+  ok('render ignores trailing blanks', !/<p><\/p>/.test(renderMarkdown('Good point\n\n')))
 }
 
 ok('md heading', renderMarkdown('# Hi').includes('<h1>Hi</h1>'))

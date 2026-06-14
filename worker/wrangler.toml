@@ -26,7 +26,10 @@ bucket_name = "penumbra-uploads"
 [vars]
 SITE_ORIGIN = "https://penumbra.page"        # CORS: the static site origin
 PUBLIC_API_BASE = "https://api.penumbra.page" # this Worker's public URL (annotation ids)
-DEV_LOGIN = "false"                           # disable the /auth/dev test endpoint in prod
+DEV_LOGIN = "true"                            # TEMPORARY passthrough sign-in (no email): /auth/email/start
+                                              # returns the magic link directly so readers sign in instantly.
+                                              # Revert to "false" once ZeptoMail sending is confirmed.
+                                              # While true, anyone can sign in as any address (incl. the author) unverified.
 MAIL_FROM = "Penumbra <noreply@penumbra.page>"  # must be on your ZeptoMail-verified domain
 AUTHOR_IDS = "email:joshua@huttj.com"         # your identity → replies badged "author"
 GITHUB_REPO = "huttj/penumbra"                # write-back target for submitted responses

@@ -131,11 +131,17 @@ export const CSS = `
 .pen-compose { position: absolute; width: 360px; max-width: calc(100vw - 24px); z-index: 2147483646;
   background: var(--pen-bg); border: 1px solid var(--pen-border); border-radius: 11px;
   box-shadow: var(--pen-shadow); padding: 10px; }
+.pen-compose .pen-note-editor { border: 1px solid var(--pen-border); border-radius: 8px;
+  max-height: 40vh; overflow-y: auto; margin-bottom: 8px; }
+.pen-compose .pen-prose.pen-mini { min-height: 2.2em; }
+.pen-compose .pen-prose.pen-mini > :last-child { margin-bottom: 0; }
 .pen-composebar { margin-top: 8px; display: flex; gap: 8px; align-items: center; justify-content: space-between; }
-.pen-emojibar { display: flex; gap: 3px; align-items: center; }
+.pen-emojibar { display: flex; flex-wrap: nowrap; gap: 3px; align-items: center; overflow: hidden; }
 .pen-emojibar button { font-size: 16px; background: var(--pen-chip); border: 1px solid var(--pen-border);
   border-radius: 8px; padding: 2px 6px; cursor: pointer; line-height: 1.25; }
 .pen-emojibar button:hover { background: var(--pen-chip-hover); transform: scale(1.08); }
+.pen-emojibar button.selected, .pen-emojigrid button.selected {
+  background: var(--pen-chip-hover); box-shadow: 0 0 0 2px var(--pen-accent) inset; }
 .pen-composebar .pen-btn { flex-shrink: 0; }
 
 .pen-addbtn {
@@ -145,14 +151,14 @@ export const CSS = `
   white-space: nowrap;
 }
 
-/* ---- emoji reactions (left rail) ---- */
-.pen-emote {
-  position: absolute; z-index: 2147483644; cursor: default;
-  background: var(--pen-bg); border: 1px solid var(--pen-border); border-radius: 14px;
-  padding: 1px 6px; font-size: 14px; box-shadow: var(--pen-shadow); white-space: nowrap;
+/* ---- emoji reactions (left margin): bare glyphs stuck beside the quote ---- */
+.pen-emote-stack {
+  position: absolute; z-index: 2147483644; cursor: pointer;
+  display: flex; flex-direction: column; gap: 1px; align-items: center;
+  transition: transform .12s ease; transform-origin: center top;
 }
-.pen-emote .pen-emote-count { font-size: 11px; color: var(--pen-muted); margin-left: 2px; }
-.pen-emote.pen-emph { border-color: var(--pen-accent); transform: scale(1.18); box-shadow: 0 0 0 2px var(--pen-accent), var(--pen-shadow); }
+.pen-emote { font-size: 16px; line-height: 1.15; white-space: nowrap; }
+.pen-emote-stack.pen-emph { transform: scale(1.18); }
 .pen-tooltip {
   position: absolute; z-index: 2147483647; background: var(--pen-fg); color: var(--pen-bg);
   font-size: 12px; padding: 4px 8px; border-radius: 6px; box-shadow: var(--pen-shadow);
@@ -231,11 +237,14 @@ body.pen-panel-open .center { max-width: none !important; min-width: 0 !importan
 .pen-prose.pen-mini { padding: 2px 11px; font-size: 14px; line-height: 1.55; min-height: 1.4em; }
 .pen-prose.pen-mini p { margin: 0.2em 0; }
 .pen-prose.pen-mini img { max-height: 120px; width: auto; margin: 4px 0; }
-.pen-cardfoot { padding: 4px 12px 10px; }
+.pen-cardfoot { padding: 0 12px 4px; min-height: 0; }
+.pen-card.focused .pen-note-editor .pen-prose.pen-mini > :last-child { margin-bottom: 0; }
+/* the reaction picker shown under a focused card's editor */
+.pen-emojislot { padding: 4px 10px 2px; }
 
 /* trash sits OUTSIDE the focused card (left gutter); click reveals stacked ✓/✗ */
 .pen-card.focused { overflow: visible; }
-.pen-card .pen-trashbox { display: none; position: absolute; left: -32px; top: 2px; flex-direction: column; gap: 4px; }
+.pen-card .pen-trashbox { display: none; position: absolute; left: -34px; top: 2px; flex-direction: column; gap: 4px; }
 .pen-card.focused .pen-trashbox { display: flex; }
 .pen-trash { width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; font-size: 13px;
   background: var(--pen-bg); border: 1px solid var(--pen-border); border-radius: 50%; color: var(--pen-muted);
@@ -245,8 +254,7 @@ body.pen-panel-open .center { max-width: none !important; min-width: 0 !importan
 .pen-trashconfirm { display: flex; flex-direction: column; gap: 4px; }
 .pen-trashconfirm[hidden] { display: none; }
 
-/* emoji picker (shared by compose + chip popup) */
-.pen-emojipick { width: auto; max-width: 280px; }
+/* emoji picker (in the compose box) */
 .pen-emoji-more { font-weight: 700; }
 .pen-emojimore { margin-top: 6px; }
 .pen-emoji-search { width: 100%; box-sizing: border-box; background: var(--pen-bg); color: var(--pen-fg);
@@ -254,7 +262,6 @@ body.pen-panel-open .center { max-width: none !important; min-width: 0 !importan
 .pen-emojigrid { display: flex; flex-wrap: wrap; gap: 2px; max-height: 160px; overflow-y: auto; }
 .pen-emojigrid button { font-size: 18px; background: none; border: none; cursor: pointer; border-radius: 6px; padding: 2px 4px; }
 .pen-emojigrid button:hover { background: var(--pen-chip-hover); }
-.pen-emoji-remove { margin-top: 6px; }
 .pen-preview { flex: 1; overflow: auto; padding: 14px 16px; }
 .pen-preview h1, .pen-preview h2, .pen-preview h3 { line-height: 1.25; }
 .pen-preview blockquote { border-left: 3px solid var(--pen-accent); margin: .6em 0; padding: .2em 0 .2em 12px; color: var(--pen-muted); }
