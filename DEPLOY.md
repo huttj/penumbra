@@ -46,6 +46,15 @@ npx wrangler pages deploy public --project-name penumbra
 Visit `https://penumbra.page/welcome` → sign in with your email → the magic link arrives →
 select text → comment. Your replies should show the **author** badge.
 
+## Response write-back (Submit → repo)
+When a reader clicks **Submit** on their response, the Worker commits it as markdown
+into `feedback/<page>/<reviewer>.md` in your repo. To enable:
+1. Create a **fine-grained PAT** (GitHub → Settings → Developer settings → Fine-grained tokens)
+   scoped to `huttj/penumbra` with **Contents: Read and write**.
+2. `cd worker && npx wrangler secret put GITHUB_TOKEN` → paste it.
+`GITHUB_REPO`/`GITHUB_BRANCH` are already set in `wrangler.toml`. Until the token
+exists, Submit returns a friendly "not enabled yet" and the draft stays saved in D1.
+
 ## Notes
 - The annotator auto-targets `https://api.penumbra.page` on any non-localhost host
   (`Head.tsx`), and keys annotations to `https://penumbra.page/<path>`.

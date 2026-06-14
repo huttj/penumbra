@@ -57,6 +57,7 @@ export class ResponsePanel {
         <span class="pen-savestate" data-save></span>
         <span style="flex:1"></span>
         <button class="pen-tbtn" data-act="mode" title="Toggle preview">Preview</button>
+        <button class="pen-btn" data-act="submit" title="Commit this response to the author's repo">Submit</button>
         <button class="pen-tbtn" data-act="close" title="Close">✕</button>
       </div>
       <div class="pen-panel-tools">
@@ -72,6 +73,7 @@ export class ResponsePanel {
 
     el.querySelector('[data-act="close"]')!.addEventListener('click', () => this.close())
     el.querySelector('[data-act="mode"]')!.addEventListener('click', () => this.toggleMode())
+    el.querySelector('[data-act="submit"]')!.addEventListener('click', () => this.submit())
     el.querySelector('[data-act="quote"]')!.addEventListener('click', () => this.insertQuoteFromSelection())
     this.ta.addEventListener('input', () => { this.body = this.ta.value; this.scheduleSave() })
     this.ta.addEventListener('paste', (e) => this.onPaste(e))
@@ -199,6 +201,22 @@ export class ResponsePanel {
   }
   private setSave(s: string) {
     const el = this.el?.querySelector('[data-save]'); if (el) el.textContent = s
+  }
+
+  private async submit() {
+    await this.flushSave()
+    this.setSave('submitting…')
+    try {
+      const res = await this.api.submitResponse(this.source)
+      this.setSave('submitted ✓')
+      if (res.url) window.open(res.url, '_blank')
+    } catch (e: any) {
+      const notReady = String(e.message).includes('not configured')
+      this.setSave(notReady ? 'submit not enabled yet' : 'submit failed')
+      alert(notReady
+        ? "Submitting to the repo isn't enabled yet — the author needs to add a GitHub token. Your draft is saved."
+        : 'Submit failed: ' + e.message)
+    }
   }
 }
 

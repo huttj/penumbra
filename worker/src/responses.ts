@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { apiBase, currentUser, isAuthor, normalizeSource, now, uuid, type Env } from './lib'
+import { commitFile, pageSlug, slugify } from './git'
 
 // Response documents are PRIVATE: a reader can only read/write their own; the
 // page author can read everyone's (the "reviews for this page" workspace).
@@ -83,3 +84,54 @@ responses.post('/', async (c) => {
     .run()
   return c.json({ id, ok: true, updated: ts })
 })
+
+// Submit: commit the reader's response into the author's repo as markdown.
+responses.post('/submit', async (c) => {
+  const user = await currentUser(c)
+  if (!user) return c.json({ error: 'sign in' }, 401)
+  const source = normalizeSource((await c.req.json<any>().catch(() => ({}))).source ?? '')
+  if (!source) return c.json({ error: 'source required' }, 400)
+  if (!c.env.GITHUB_TOKEN || !c.env.GITHUB_REPO) return c.json({ error: 'write-back not configured' }, 501)
+
+  const row = await c.env.DB.prepare(
+    `SELECT r.*, u.name AS creator_name, u.email AS creator_email
+       FROM responses r LEFT JOIN users u ON u.id = r.creator_id
+      WHERE r.source = ? AND r.creator_id = ?`
+  )
+    .bind(source, user.id)
+    .first<any>()
+  if (!row) return c.json({ error: 'nothing to submit' }, 404)
+
+  const md = composeDoc(row, source)
+  const path = `feedback/${pageSlug(source)}/${slugify(row.creator_name || user.id)}.md`
+  let result
+  try {
+    result = await commitFile(c.env, path, md, `feedback: ${row.creator_name ?? 'reader'} on ${pageSlug(source)}`)
+  } catch (e: any) {
+    return c.json({ error: e.message }, 502)
+  }
+  await c.env.DB.prepare(`UPDATE responses SET status = 'submitted', updated = ? WHERE id = ?`).bind(now(), row.id).run()
+  return c.json({ ok: true, path, commit: result.commit, url: result.url })
+})
+
+// Compose the committed markdown: frontmatter + essay + live quotes.
+function composeDoc(row: any, source: string): string {
+  const quotes = (JSON.parse(row.quotes || '[]') as any[]).filter((q) => !q.dismissed)
+  const fm = [
+    '---',
+    'penumbra: response',
+    `source: ${source}`,
+    row.source_sha ? `sourceSha: ${row.source_sha}` : '',
+    `reviewer: ${(row.creator_name ?? 'reader').replace(/\n/g, ' ')}`,
+    `reviewerId: ${row.creator_id}`,
+    `created: ${row.created}`,
+    `updated: ${now()}`,
+    '---',
+    '',
+  ].filter((l) => l !== '').join('\n')
+  let body = (row.body ?? '').trim()
+  if (quotes.length) {
+    body += '\n\n---\n\n**Quoting:**\n\n' + quotes.map((q) => `> ${String(q.text).replace(/\n/g, ' ')}`).join('\n>\n')
+  }
+  return `${fm}\n${body}\n`
+}

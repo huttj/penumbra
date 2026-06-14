@@ -24,3 +24,6 @@ PUBLIC_API_BASE = "https://api.penumbra.page" # this Worker's public URL (annota
 DEV_LOGIN = "false"                           # disable the /auth/dev test endpoint in prod
 MAIL_FROM = "Penumbra <noreply@penumbra.page>"  # must be on your ZeptoMail-verified domain
 AUTHOR_IDS = "email:joshua@huttj.com"         # your identity → replies badged "author"
+GITHUB_REPO = "huttj/penumbra"                # write-back target for submitted responses
+GITHUB_BRANCH = "main"
+# GITHUB_TOKEN is a secret: wrangler secret put GITHUB_TOKEN (fine-grained PAT, Contents: R/W)

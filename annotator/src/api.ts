@@ -112,6 +112,17 @@ export class Api {
     return (await r.json()).responses
   }
 
+  async submitResponse(source: string): Promise<any> {
+    const r = await fetch(`${this.base}/responses/submit`, {
+      method: 'POST',
+      headers: this.headers(true),
+      body: JSON.stringify({ source }),
+    })
+    const j = await r.json().catch(() => ({}))
+    if (!r.ok) throw new Error(j.error ?? `submit failed (${r.status})`)
+    return j
+  }
+
   loginUrl(provider: 'github' | 'google'): string {
     return `${this.base}/auth/${provider}/start?return=${encodeURIComponent(location.href)}`
   }

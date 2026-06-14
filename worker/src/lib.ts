@@ -13,6 +13,9 @@ export type Env = {
   ZEPTOMAIL_URL?: string   // optional override, e.g. https://api.zeptomail.eu/v1.1/email
   MAIL_FROM?: string       // "Name <address@penumbra.page>"
   AUTHOR_IDS?: string // comma-separated user ids who "own" pages (can acknowledge; replies badged)
+  GITHUB_TOKEN?: string    // fine-grained PAT (Contents: R/W) for write-back; set as a secret
+  GITHUB_REPO?: string     // "owner/repo", e.g. "huttj/penumbra"
+  GITHUB_BRANCH?: string   // default "main"
 }
 
 export function authorIds(env: Env): string[] {
