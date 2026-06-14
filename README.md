@@ -92,8 +92,36 @@ cd ../site && npx quartz build --serve --port 8080
 `cd annotator && npm i && npm run build && cd ../site && npm i && npx quartz plugin install --from-config && npx quartz build`
 · Output dir: `site/public` · also set `SITE_ORIGIN=https://penumbra.page` on the Worker.
 
-## Not done yet / ideas
-- **LLM layer** — image captioning + embeddings index + chat-over-content API. Separate pipeline; the W3C-JSON store makes "chat about the comments" trivial.
-- **LLM changelogs + digests** — git history → LLM-written per-note changelogs; periodic digests of new writing + comments. Fits cleanly: the vault is git, comments are structured JSON.
-- Git-snapshot exporter for archival/federation. Replies/threads. Version stepper UI.
-- **Auth scope** — GitHub/Google/email all work; going *email-only* is just hiding the OAuth buttons (one toggle). Deferred — Josh is deciding.
+## Response layer (private feedback → forked documents)
+
+The model: **a comment and a document are the same primitive at different zoom
+levels** — a response anchored to the source text. One **response doc per reader
+per page**, private (each reader sees only their own; the author sees all).
+
+- **Annotate** — highlight + comment, now *private 1:1 channels* (reads are
+  auth-scoped in the Worker).
+- **Respond** — the `✍ Response` panel: a side-by-side markdown essay editor.
+  Insert quotes from a selection (anchored), paste a passage and it auto-anchors
+  to the source, and quotes go **stale** (grayed/strikethrough) when you edit the
+  text they point at — reusing the anchoring engine's strict matcher.
+- **Submit** — commits the doc as markdown into `feedback/<page>/<reviewer>.md`
+  via the GitHub Contents API (needs `GITHUB_TOKEN`), with frontmatter recording
+  the source + the build commit SHA (the "look it up in git history" archive).
+- **Reviews** — author-only `👁 Reviews` panel collects every reader's response.
+- **Notify** — ZeptoMail emails the other side on submit/reply.
+
+Data: `responses` table in D1 (live drafts) → markdown in the repo on submit.
+Federation (other people's repos, Obsidian-as-browser) is deliberately deferred.
+
+### To fully enable in prod
+1. `cd worker && npx wrangler d1 migrations apply penumbra --remote` (adds `responses`)
+2. `npx wrangler deploy` (ships the response routes + private reads)
+3. `npx wrangler secret put GITHUB_TOKEN` (fine-grained PAT, Contents: R/W) — for Submit
+4. Add ZeptoMail credits — for login + notification email
+5. Rebuild Pages
+
+## Later / ideas
+- **"New since last visit"** read-state (per-user visit timestamps) replacing the author-acknowledge dot.
+- WYSIWYG response editor; recursion UI (responses become annotatable pages); version stepper.
+- Obsidian-side edit → email (a GitHub Action on push).
+- **LLM layer** — image indexing + chat-over-content; git-history changelogs + digests.
