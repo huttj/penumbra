@@ -71,7 +71,7 @@ export class ResponsePanel {
     el.querySelector('[data-act="close"]')!.addEventListener('click', () => this.close())
     el.querySelector('[data-act="mode"]')!.addEventListener('click', () => this.toggleMode())
     el.querySelector('[data-act="submit"]')!.addEventListener('click', () => this.submit())
-    this.ta.addEventListener('input', () => { this.body = this.ta.value; this.scheduleSave() })
+    this.ta.addEventListener('input', () => { this.body = this.ta.value; this.renderQuoteHighlights(); this.scheduleSave() })
     this.ta.addEventListener('paste', (e) => this.onPaste(e))
     this.ta.addEventListener('keyup', () => this.amplifyAtCursor())
     this.ta.addEventListener('click', () => this.amplifyAtCursor())
@@ -110,10 +110,17 @@ export class ResponsePanel {
     return resolveQuoteStrict(q.selector, this.root)
   }
 
-  // Every quote that still matches gets a subtle highlight in the source doc.
+  // Quotes still referenced by the essay text (whitespace-insensitive) — so
+  // deleting a blockquote from the editor removes its source highlight.
+  private liveQuotes(): Quote[] {
+    const b = this.ta.value.replace(/\s+/g, ' ')
+    return this.quotes.filter((q) => b.includes(q.text.replace(/\s+/g, ' ').trim()))
+  }
+
+  // Every live quote that still matches gets a subtle highlight in the source.
   private renderQuoteHighlights() {
     if (!HL) return
-    const ranges = this.quotes.map((q) => this.quoteRange(q)).filter(Boolean) as Range[]
+    const ranges = this.liveQuotes().map((q) => this.quoteRange(q)).filter(Boolean) as Range[]
     const h = (window as any).CSS.highlights
     if (ranges.length) h.set('penumbra-quote', new (globalThis as any).Highlight(...ranges)); else h.delete('penumbra-quote')
   }

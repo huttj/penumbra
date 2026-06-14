@@ -167,10 +167,12 @@ export const CSS = `
 body.pen-panel-open .page { max-width: none !important; margin: 0 !important; }
 body.pen-panel-open #quartz-body {
   grid-template: "grid-header" "grid-center" "grid-footer" / auto !important;
-  width: 50vw !important; max-width: 50vw !important; margin: 0 !important; padding: 2rem 3rem !important;
+  width: 50vw !important; max-width: 50vw !important; margin: 0 !important;
+  padding: 2rem 3rem !important; box-sizing: border-box !important;
 }
+body.pen-panel-open #quartz-body, body.pen-panel-open #quartz-body * { box-sizing: border-box; }
 body.pen-panel-open #quartz-body .sidebar { display: none !important; }
-body.pen-panel-open .center { max-width: none !important; min-width: 0 !important; }
+body.pen-panel-open .center { max-width: none !important; min-width: 0 !important; overflow-wrap: break-word; }
 
 /* ---- response panel: side-by-side essay editor ---- */
 .pen-panel {
