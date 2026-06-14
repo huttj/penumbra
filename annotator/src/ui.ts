@@ -36,7 +36,24 @@ type Block = { id: string; quotes: string[]; note: string; ranges: Range[]; isEm
 const HL = typeof (globalThis as any).Highlight !== 'undefined' && !!(window as any).CSS?.highlights
 const GAP = 10
 const QUICK_EMOJI = ['👍', '❤️', '🔥', '😄', '🤔', '🎯']
-const MORE_EMOJI = ['👍', '👎', '❤️', '🔥', '💯', '🎉', '🚀', '💡', '✅', '❌', '⭐', '🙏', '👏', '👀', '🤔', '😂', '😍', '😮', '😢', '😡', '😅', '😎', '🤯', '🙌', '💪', '🤝', '🧠', '📌', '⚡', '🌟', '✨', '💀', '🥹', '🫡', '🤷', '🫠', '📝', '🔖', '❓', '❗']
+const EMOJI_DATA: [string, string][] = [
+  ['👍', 'thumbs up like yes good approve'], ['👎', 'thumbs down dislike no bad'], ['❤️', 'heart love red'],
+  ['🔥', 'fire lit hot flame'], ['💯', 'hundred 100 perfect score'], ['🎉', 'party tada celebrate congrats'],
+  ['🚀', 'rocket launch fast ship'], ['💡', 'idea bulb light'], ['✅', 'check done yes correct'],
+  ['❌', 'cross no wrong x'], ['⭐', 'star favorite'], ['🙏', 'pray thanks please hands'], ['👏', 'clap applause bravo'],
+  ['👀', 'eyes look watching'], ['🤔', 'think thinking hmm'], ['😂', 'laugh lol joy cry'], ['😍', 'love eyes heart'],
+  ['😮', 'wow surprised'], ['😢', 'sad cry tear'], ['😡', 'angry mad rage'], ['😅', 'sweat nervous laugh'],
+  ['😎', 'cool sunglasses'], ['🤯', 'mind blown exploding head'], ['🙌', 'raised hands celebrate yay'],
+  ['💪', 'muscle strong flex'], ['🤝', 'handshake deal agree'], ['🧠', 'brain smart mind'], ['📌', 'pin important'],
+  ['⚡', 'lightning fast bolt energy'], ['🌟', 'glowing star'], ['✨', 'sparkles shiny magic'], ['💀', 'skull dead lol'],
+  ['🥹', 'holding back tears touched'], ['🫡', 'salute respect'], ['🤷', 'shrug dunno whatever'], ['🫠', 'melting embarrassed'],
+  ['📝', 'memo note write'], ['🔖', 'bookmark save tag'], ['❓', 'question'], ['❗', 'exclamation important'],
+  ['😀', 'grin happy smile'], ['🙂', 'slight smile'], ['😉', 'wink'], ['🤨', 'raised eyebrow suspicious doubt'],
+  ['🙄', 'eye roll annoyed'], ['😴', 'sleep tired bored'], ['🥳', 'party face celebrate'], ['😱', 'scream shock fear'],
+  ['🤓', 'nerd glasses geek'], ['🫶', 'heart hands love'], ['👌', 'ok perfect nice'], ['🤌', 'chefs kiss pinch'],
+  ['✌️', 'peace victory'], ['🤞', 'fingers crossed luck hope'], ['👋', 'wave hi hello bye'], ['🎯', 'target bullseye goal'],
+  ['🐐', 'goat greatest'], ['💸', 'money cash spend'], ['📈', 'chart up growth'], ['📉', 'chart down decline'],
+]
 const TRASH_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>'
 
 export class Penumbra {
@@ -330,14 +347,14 @@ export class Penumbra {
     const quoteHtml = blk.quotes.map((q) => `<div class="pen-quote">${esc(q)}</div>`).join('')
     if (!expanded) {
       const noteHtml = blk.note.trim()
-        ? `<div class="pen-body pen-md">${renderMarkdown(blk.note)}</div>`
-        : `<div class="pen-body pen-muted">Add a comment…</div>`
+        ? `<div class="pen-md">${renderMarkdown(blk.note)}</div>`
+        : `<div class="pen-md pen-muted">Add a comment…</div>`
       card.innerHTML = `${quoteHtml}<div class="pen-thread">${noteHtml}</div>`
       card.addEventListener('click', () => this.focus(blk.id))
     } else {
       // Rich-text editor is mounted (lazy) onto this placeholder in layoutRightRail.
       card.innerHTML = `${quoteHtml}
-        <div class="pen-note-editor" data-note-editor><div class="pen-body pen-md">${renderMarkdown(blk.note)}</div></div>
+        <div class="pen-note-editor" data-note-editor><div class="pen-md">${renderMarkdown(blk.note)}</div></div>
         <div class="pen-row pen-cardfoot"><span></span><span class="pen-savestate" data-cardsave></span></div>
         <div class="pen-trashbox">
           <button class="pen-trash" data-act="del-init" title="Delete comment">${TRASH_SVG}</button>
@@ -423,15 +440,14 @@ export class Penumbra {
     box.style.left = `${Math.min(window.scrollX + rect.left, window.scrollX + window.innerWidth - 372)}px`
     box.style.top = `${window.scrollY + rect.bottom + 8}px`
     box.innerHTML = `<textarea placeholder="Comment…  (⌘/Ctrl + ⏎ to send)"></textarea>
-      <div class="pen-composebar">
-        <div class="pen-emojibar">${QUICK_EMOJI.map((e) => `<button data-emoji="${e}">${e}</button>`).join('')}</div>
+      <div data-emojislot></div>
+      <div class="pen-row" style="margin-top:7px"><span class="pen-title">react ↑ or</span>
         <button class="pen-btn" data-act="post">Comment</button></div>`
     const ta = box.querySelector('textarea') as HTMLTextAreaElement
     autoGrow(ta)
     const post = () => { if (ta.value.trim()) this.addBlock(quote, ta.value.trim()) }
     ta.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); post() } })
-    box.querySelectorAll('[data-emoji]').forEach((b) =>
-      b.addEventListener('click', () => this.addBlock(quote, (b as HTMLElement).dataset.emoji!)))
+    box.querySelector('[data-emojislot]')!.appendChild(this.buildEmojiPanel((e) => this.addBlock(quote, e)))
     box.querySelector('[data-act="post"]')!.addEventListener('click', post)
     this.layer.appendChild(box)
     this.compose = box
@@ -461,7 +477,36 @@ export class Penumbra {
     this.saveDoc()
   }
 
-  // Clicking an emoji reaction (chip or its highlight) → change it or delete it.
+  // Shared emoji UI: a quick row + a "＋ more" button that reveals a search and
+  // the full grid (search sits between the quick row and the grid).
+  private buildEmojiPanel(onPick: (e: string) => void, onRemove?: () => void): HTMLElement {
+    const wrap = document.createElement('div')
+    wrap.className = 'pen-emojipanel'
+    wrap.innerHTML = `
+      <div class="pen-emojibar">${QUICK_EMOJI.map((e) => `<button data-e="${e}">${e}</button>`).join('')}
+        <button class="pen-emoji-more" data-act="more" title="More emoji">＋</button></div>
+      <div class="pen-emojimore" data-more hidden>
+        <input class="pen-emoji-search" placeholder="Search emoji…">
+        <div class="pen-emojigrid" data-grid></div>
+      </div>
+      ${onRemove ? '<div class="pen-row pen-emoji-remove"><span></span><a class="pen-foot" data-act="remove">Remove</a></div>' : ''}`
+    const grid = wrap.querySelector('[data-grid]') as HTMLElement
+    const renderGrid = (q: string) => {
+      const ql = q.trim().toLowerCase()
+      grid.innerHTML = EMOJI_DATA.filter(([e, kw]) => !ql || kw.includes(ql) || e === q).map(([e]) => `<button data-e="${e}">${e}</button>`).join('')
+      grid.querySelectorAll('[data-e]').forEach((b) => b.addEventListener('click', () => onPick((b as HTMLElement).dataset.e!)))
+    }
+    renderGrid('')
+    wrap.querySelectorAll('.pen-emojibar [data-e]').forEach((b) => b.addEventListener('click', () => onPick((b as HTMLElement).dataset.e!)))
+    const more = wrap.querySelector('[data-more]') as HTMLElement
+    const search = wrap.querySelector('.pen-emoji-search') as HTMLInputElement
+    wrap.querySelector('[data-act="more"]')!.addEventListener('click', () => { more.hidden = !more.hidden; if (!more.hidden) search.focus() })
+    search.addEventListener('input', () => renderGrid(search.value))
+    if (onRemove) wrap.querySelector('[data-act="remove"]')!.addEventListener('click', onRemove)
+    return wrap
+  }
+
+  // Clicking an emoji reaction (chip or its highlight) → change it or remove it.
   private openEmojiPicker(blk: Block, rect: DOMRect) {
     this.dismissCompose()
     const box = document.createElement('div')
@@ -469,21 +514,10 @@ export class Penumbra {
     box.setAttribute('data-pen-ui', '')
     box.style.left = `${Math.min(window.scrollX + rect.left, window.scrollX + window.innerWidth - 280)}px`
     box.style.top = `${window.scrollY + rect.bottom + 6}px`
-    box.innerHTML = `
-      <div class="pen-emojibar">${QUICK_EMOJI.map((e) => `<button data-e="${e}">${e}</button>`).join('')}
-        <button class="pen-emoji-more" data-act="more" title="More emoji">＋</button></div>
-      <div class="pen-emojigrid" data-grid hidden>${MORE_EMOJI.map((e) => `<button data-e="${e}">${e}</button>`).join('')}</div>
-      <div class="pen-row" style="margin-top:7px"><input class="pen-emoji-input" placeholder="or type any emoji…" maxlength="12">
-        <a class="pen-foot" data-act="delete" style="margin-left:8px">Delete</a></div>`
-    box.querySelectorAll('[data-e]').forEach((b) => b.addEventListener('click', () => this.setEmoji(blk, (b as HTMLElement).dataset.e!)))
-    box.querySelector('[data-act="more"]')!.addEventListener('click', () => {
-      const g = box.querySelector('[data-grid]') as HTMLElement; g.hidden = !g.hidden
-    })
-    const input = box.querySelector('.pen-emoji-input') as HTMLInputElement
-    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && input.value.trim()) this.setEmoji(blk, input.value.trim()) })
-    box.querySelector('[data-act="delete"]')!.addEventListener('click', () => {
-      this.blocks = this.blocks.filter((b) => b.id !== blk.id); this.dismissCompose(); this.saveDoc()
-    })
+    box.appendChild(this.buildEmojiPanel(
+      (e) => this.setEmoji(blk, e),
+      () => { this.blocks = this.blocks.filter((b) => b.id !== blk.id); this.dismissCompose(); this.saveDoc() },
+    ))
     this.layer.appendChild(box)
     this.compose = box
   }

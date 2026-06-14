@@ -26,6 +26,8 @@ export class ResponsePanel {
   private body = ''
   private saveTimer: any = null
   private hoverRaf = false
+  private mounted = false
+  private lastMd = ''
 
   constructor(o: Opts) {
     this.api = o.api; this.root = o.root; this.source = o.source
@@ -78,11 +80,17 @@ export class ResponsePanel {
         handlePaste: (_view, event) => this.handleImagePaste(event),
       },
       onUpdate: () => {
-        this.body = (this.editor.storage as any).markdown.getMarkdown()
+        if (!this.mounted) return // ignore the initial content-parse update
+        const md = (this.editor.storage as any).markdown.getMarkdown()
+        if (md === this.lastMd) return
+        this.lastMd = md
+        this.body = md
         this.renderQuoteHighlights(); this.scheduleSave()
       },
       onSelectionUpdate: () => this.amplifyAtCursor(),
     })
+    this.mounted = true
+    this.lastMd = (this.editor.storage as any).markdown.getMarkdown()
 
     // Delegated hover (survives ProseMirror re-renders): hovering a blockquote in
     // the editor emphasizes its source highlight; off a quote, falls back to cursor.
@@ -219,6 +227,8 @@ async function insertImage(editor: Editor, file: File, upload?: (f: File) => Pro
 
 // A small standalone rich editor for inline margin-card comment editing.
 export function createMiniEditor(mount: HTMLElement, markdown: string, opts: { onChange: (md: string) => void; uploadImage?: (f: File) => Promise<string> }) {
+  let mounted = false
+  let last = markdown
   const editor = new Editor({
     element: mount,
     extensions: [
@@ -243,8 +253,16 @@ export function createMiniEditor(mount: HTMLElement, markdown: string, opts: { o
         return false
       },
     },
-    onUpdate: () => opts.onChange((editor.storage as any).markdown.getMarkdown()),
+    onUpdate: () => {
+      if (!mounted) return // the initial content-parse update isn't a real edit
+      const md = (editor.storage as any).markdown.getMarkdown()
+      if (md === last) return
+      last = md
+      opts.onChange(md)
+    },
   })
+  mounted = true
+  last = (editor.storage as any).markdown.getMarkdown() // baseline against the normalized init content
   return {
     destroy: () => editor.destroy(),
     getMarkdown: () => (editor.storage as any).markdown.getMarkdown(),

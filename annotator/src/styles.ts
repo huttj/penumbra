@@ -99,7 +99,7 @@ export const CSS = `
   background: var(--pen-author); color: var(--pen-fg); padding: 1px 5px; border-radius: 4px;
 }
 .pen-body { white-space: pre-wrap; word-wrap: break-word; color: var(--pen-fg); }
-.pen-card.compact .pen-body { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.pen-card.compact .pen-md { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .pen-unread-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--pen-unread); flex-shrink: 0; }
 .pen-more { font-size: 12px; color: var(--pen-muted); padding-top: 4px; }
 
@@ -243,15 +243,18 @@ body.pen-panel-open .center { max-width: none !important; min-width: 0 !importan
 .pen-trash:hover, .pen-trash.pen-no:hover { color: var(--pen-unread); border-color: var(--pen-unread); }
 .pen-trash.pen-yes:hover { color: var(--pen-tertiary, #84a59d); border-color: var(--pen-tertiary, #84a59d); }
 .pen-trashconfirm { display: flex; flex-direction: column; gap: 4px; }
+.pen-trashconfirm[hidden] { display: none; }
 
-/* emoji picker popup */
+/* emoji picker (shared by compose + chip popup) */
 .pen-emojipick { width: auto; max-width: 280px; }
 .pen-emoji-more { font-weight: 700; }
-.pen-emojigrid { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 6px; }
+.pen-emojimore { margin-top: 6px; }
+.pen-emoji-search { width: 100%; box-sizing: border-box; background: var(--pen-bg); color: var(--pen-fg);
+  border: 1px solid var(--pen-border); border-radius: 7px; padding: 5px 8px; font: inherit; margin-bottom: 6px; }
+.pen-emojigrid { display: flex; flex-wrap: wrap; gap: 2px; max-height: 160px; overflow-y: auto; }
 .pen-emojigrid button { font-size: 18px; background: none; border: none; cursor: pointer; border-radius: 6px; padding: 2px 4px; }
 .pen-emojigrid button:hover { background: var(--pen-chip-hover); }
-.pen-emoji-input { background: var(--pen-bg); color: var(--pen-fg); border: 1px solid var(--pen-border);
-  border-radius: 7px; padding: 5px 8px; font: inherit; flex: 1; }
+.pen-emoji-remove { margin-top: 6px; }
 .pen-preview { flex: 1; overflow: auto; padding: 14px 16px; }
 .pen-preview h1, .pen-preview h2, .pen-preview h3 { line-height: 1.25; }
 .pen-preview blockquote { border-left: 3px solid var(--pen-accent); margin: .6em 0; padding: .2em 0 .2em 12px; color: var(--pen-muted); }
