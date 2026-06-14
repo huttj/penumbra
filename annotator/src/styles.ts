@@ -81,7 +81,7 @@ export const CSS = `
 .pen-muted { color: var(--pen-muted); font-style: italic; }
 /* images in a margin card are small fixed-height previews (full size lives in the
    editor); the fixed height also keeps card measurement stable so they don't overlap */
-.pen-card .pen-md img { display: block; height: 56px; width: auto; max-width: 100%; border-radius: 6px; margin: 4px 0; }
+.pen-card .pen-md img { display: block; height: 56px; width: auto; max-width: 100%; border-radius: 6px; margin: 0; }
 .pen-thread { padding: 2px 12px 10px; }
 .pen-comment { padding: 2px 0; }
 /* tighten paragraph spacing inside card notes (default <p> margins were huge) */
@@ -226,11 +226,32 @@ body.pen-panel-open .center { max-width: none !important; min-width: 0 !importan
 .pen-prose blockquote p { margin: .15em 0; }
 .pen-prose blockquote.pen-bq-active { background: rgba(132,165,157,.45); box-shadow: inset 3px 0 0 var(--pen-accent); }
 
-/* rich editor inside a margin card: borderless, compact, aligned with the quote */
-.pen-prose.pen-mini { padding: 2px 11px; font: inherit; line-height: 1.5; min-height: 1.4em; }
+/* rich editor inside a margin card: borderless, compact, aligned with the quote.
+   font-size matches .pen-md so rendered vs editing text are the same size. */
+.pen-prose.pen-mini { padding: 2px 11px; font-size: 14px; line-height: 1.55; min-height: 1.4em; }
 .pen-prose.pen-mini p { margin: 0.2em 0; }
 .pen-prose.pen-mini img { max-height: 120px; width: auto; margin: 4px 0; }
 .pen-cardfoot { padding: 4px 12px 10px; }
+
+/* trash sits OUTSIDE the focused card (left gutter); click reveals stacked ✓/✗ */
+.pen-card.focused { overflow: visible; }
+.pen-card .pen-trashbox { display: none; position: absolute; left: -32px; top: 2px; flex-direction: column; gap: 4px; }
+.pen-card.focused .pen-trashbox { display: flex; }
+.pen-trash { width: 26px; height: 26px; display: flex; align-items: center; justify-content: center; font-size: 13px;
+  background: var(--pen-bg); border: 1px solid var(--pen-border); border-radius: 50%; color: var(--pen-muted);
+  cursor: pointer; box-shadow: var(--pen-shadow); }
+.pen-trash:hover, .pen-trash.pen-no:hover { color: var(--pen-unread); border-color: var(--pen-unread); }
+.pen-trash.pen-yes:hover { color: var(--pen-tertiary, #84a59d); border-color: var(--pen-tertiary, #84a59d); }
+.pen-trashconfirm { display: flex; flex-direction: column; gap: 4px; }
+
+/* emoji picker popup */
+.pen-emojipick { width: auto; max-width: 280px; }
+.pen-emoji-more { font-weight: 700; }
+.pen-emojigrid { display: flex; flex-wrap: wrap; gap: 2px; margin-top: 6px; }
+.pen-emojigrid button { font-size: 18px; background: none; border: none; cursor: pointer; border-radius: 6px; padding: 2px 4px; }
+.pen-emojigrid button:hover { background: var(--pen-chip-hover); }
+.pen-emoji-input { background: var(--pen-bg); color: var(--pen-fg); border: 1px solid var(--pen-border);
+  border-radius: 7px; padding: 5px 8px; font: inherit; flex: 1; }
 .pen-preview { flex: 1; overflow: auto; padding: 14px 16px; }
 .pen-preview h1, .pen-preview h2, .pen-preview h3 { line-height: 1.25; }
 .pen-preview blockquote { border-left: 3px solid var(--pen-accent); margin: .6em 0; padding: .2em 0 .2em 12px; color: var(--pen-muted); }

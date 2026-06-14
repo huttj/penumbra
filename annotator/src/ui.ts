@@ -36,6 +36,8 @@ type Block = { id: string; quotes: string[]; note: string; ranges: Range[]; isEm
 const HL = typeof (globalThis as any).Highlight !== 'undefined' && !!(window as any).CSS?.highlights
 const GAP = 10
 const QUICK_EMOJI = ['👍', '❤️', '🔥', '😄', '🤔', '🎯']
+const MORE_EMOJI = ['👍', '👎', '❤️', '🔥', '💯', '🎉', '🚀', '💡', '✅', '❌', '⭐', '🙏', '👏', '👀', '🤔', '😂', '😍', '😮', '😢', '😡', '😅', '😎', '🤯', '🙌', '💪', '🤝', '🧠', '📌', '⚡', '🌟', '✨', '💀', '🥹', '🫡', '🤷', '🫠', '📝', '🔖', '❓', '❗']
+const TRASH_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/></svg>'
 
 export class Penumbra {
   private api: Api
@@ -312,7 +314,7 @@ export class Penumbra {
       chip.textContent = blk.note.trim()
       chip.addEventListener('mouseenter', () => this.setHovered(blk.id))
       chip.addEventListener('mouseleave', () => this.setHovered(null))
-      chip.addEventListener('click', () => this.focus(blk.id))
+      chip.addEventListener('click', () => this.openEmojiPicker(blk, chip.getBoundingClientRect()))
       this.layer.appendChild(chip)
       const top = Math.max(this.docY(blk.ranges[0]), bottom + 6)
       chip.style.left = `${x}px`; chip.style.top = `${top}px`
@@ -336,10 +338,18 @@ export class Penumbra {
       // Rich-text editor is mounted (lazy) onto this placeholder in layoutRightRail.
       card.innerHTML = `${quoteHtml}
         <div class="pen-note-editor" data-note-editor><div class="pen-body pen-md">${renderMarkdown(blk.note)}</div></div>
-        <div class="pen-row pen-cardfoot"><span class="pen-foot"><a data-act="delete">Delete</a></span>
-          <span class="pen-savestate" data-cardsave></span></div>`
-      card.querySelector('[data-act="delete"]')!.addEventListener('click', () => {
-        if (!confirm('Delete this comment?')) return
+        <div class="pen-row pen-cardfoot"><span></span><span class="pen-savestate" data-cardsave></span></div>
+        <div class="pen-trashbox">
+          <button class="pen-trash" data-act="del-init" title="Delete comment">${TRASH_SVG}</button>
+          <div class="pen-trashconfirm" data-confirm hidden>
+            <button class="pen-trash pen-yes" data-act="del-yes" title="Confirm delete">✓</button>
+            <button class="pen-trash pen-no" data-act="del-no" title="Cancel">✕</button>
+          </div></div>`
+      const confirmEl = card.querySelector('[data-confirm]') as HTMLElement
+      const trashBtn = card.querySelector('[data-act="del-init"]') as HTMLElement
+      trashBtn.addEventListener('click', () => { trashBtn.style.display = 'none'; confirmEl.hidden = false })
+      card.querySelector('[data-act="del-no"]')!.addEventListener('click', () => { confirmEl.hidden = true; trashBtn.style.display = '' })
+      card.querySelector('[data-act="del-yes"]')!.addEventListener('click', () => {
         this.blocks = this.blocks.filter((b) => b.id !== blk.id); this.saveDoc()
       })
     }
@@ -451,6 +461,39 @@ export class Penumbra {
     this.saveDoc()
   }
 
+  // Clicking an emoji reaction (chip or its highlight) → change it or delete it.
+  private openEmojiPicker(blk: Block, rect: DOMRect) {
+    this.dismissCompose()
+    const box = document.createElement('div')
+    box.className = 'pen-compose pen-emojipick'
+    box.setAttribute('data-pen-ui', '')
+    box.style.left = `${Math.min(window.scrollX + rect.left, window.scrollX + window.innerWidth - 280)}px`
+    box.style.top = `${window.scrollY + rect.bottom + 6}px`
+    box.innerHTML = `
+      <div class="pen-emojibar">${QUICK_EMOJI.map((e) => `<button data-e="${e}">${e}</button>`).join('')}
+        <button class="pen-emoji-more" data-act="more" title="More emoji">＋</button></div>
+      <div class="pen-emojigrid" data-grid hidden>${MORE_EMOJI.map((e) => `<button data-e="${e}">${e}</button>`).join('')}</div>
+      <div class="pen-row" style="margin-top:7px"><input class="pen-emoji-input" placeholder="or type any emoji…" maxlength="12">
+        <a class="pen-foot" data-act="delete" style="margin-left:8px">Delete</a></div>`
+    box.querySelectorAll('[data-e]').forEach((b) => b.addEventListener('click', () => this.setEmoji(blk, (b as HTMLElement).dataset.e!)))
+    box.querySelector('[data-act="more"]')!.addEventListener('click', () => {
+      const g = box.querySelector('[data-grid]') as HTMLElement; g.hidden = !g.hidden
+    })
+    const input = box.querySelector('.pen-emoji-input') as HTMLInputElement
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter' && input.value.trim()) this.setEmoji(blk, input.value.trim()) })
+    box.querySelector('[data-act="delete"]')!.addEventListener('click', () => {
+      this.blocks = this.blocks.filter((b) => b.id !== blk.id); this.dismissCompose(); this.saveDoc()
+    })
+    this.layer.appendChild(box)
+    this.compose = box
+  }
+
+  private setEmoji(blk: Block, value: string) {
+    blk.note = value // emoji → stays a chip; text → becomes a comment on re-parse
+    this.dismissCompose()
+    this.saveDoc()
+  }
+
   private dismissCompose() {
     this.compose?.remove(); this.compose = undefined; this.composeCtx = undefined
     this.renderHighlights()
@@ -465,7 +508,12 @@ export class Penumbra {
   private onDocClick(e: MouseEvent) {
     if ((e.target as HTMLElement).closest('[data-pen-ui]')) return
     if (window.getSelection()?.toString().trim()) return
-    for (const b of this.blocks) if (b.ranges.some((r) => this.hitsRange(e, r))) return this.focus(b.id)
+    for (const b of this.blocks) {
+      if (b.ranges.some((r) => this.hitsRange(e, r))) {
+        if (b.isEmoji) return this.openEmojiPicker(b, b.ranges[0].getBoundingClientRect())
+        return this.focus(b.id)
+      }
+    }
     if (this.focused) { this.focused = null; this.renderAll() }
   }
   private hitsRange(e: MouseEvent, range: Range): boolean {
