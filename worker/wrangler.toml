@@ -3,23 +3,24 @@ main = "src/index.ts"
 compatibility_date = "2026-06-01"
 compatibility_flags = ["nodejs_compat"]
 
-# Run `wrangler d1 create penumbra` and paste the returned database_id here for remote deploys.
-# Local dev (`wrangler dev`) works without it — it uses a local SQLite under .wrangler/.
+# Serve the Worker at api.penumbra.page (requires the penumbra.page zone on your
+# Cloudflare account). `wrangler deploy` provisions the custom domain.
+[[routes]]
+pattern = "api.penumbra.page"
+custom_domain = true
+
+# Run `wrangler d1 create penumbra` and paste the returned database_id here.
 [[d1_databases]]
 binding = "DB"
 database_name = "penumbra"
 database_id = "REPLACE_AFTER_d1_create"
 migrations_dir = "migrations"
 
+# ---- production values (used by `wrangler deploy`) ----
+# Local `wrangler dev` overrides these via worker/.dev.vars (gitignored).
 [vars]
-# The static site origin allowed to call this API (CORS). Override per-env.
-SITE_ORIGIN = "http://localhost:8080"
-# Enables POST /auth/dev for local testing without real OAuth apps. Set to "false" in prod.
-DEV_LOGIN = "true"
-# Public URL of THIS worker, used to build OAuth redirect_uris and annotation ids.
-# Leave blank locally; the worker falls back to the request origin.
-PUBLIC_API_BASE = ""
-MAIL_FROM = "Penumbra <onboarding@resend.dev>"
-# Page-owner identities: can mark threads acknowledged; their replies are badged.
-# Local dev login produces "email:josh@dev.local". Add your real ids for prod.
-AUTHOR_IDS = "email:josh@dev.local,email:squashai@gmail.com"
+SITE_ORIGIN = "https://penumbra.page"        # CORS: the static site origin
+PUBLIC_API_BASE = "https://api.penumbra.page" # this Worker's public URL (annotation ids)
+DEV_LOGIN = "false"                           # disable the /auth/dev test endpoint in prod
+MAIL_FROM = "Penumbra <noreply@penumbra.page>"  # verify this domain in Resend
+AUTHOR_IDS = "email:squashai@gmail.com"       # your identity → replies badged "author"

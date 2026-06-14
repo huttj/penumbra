@@ -568,20 +568,18 @@ export class Penumbra {
       })
     } else {
       el.innerHTML = `<div class="pen-title">Sign in to comment</div>
-        <div class="pen-providers">
-          <button class="pen-btn" data-act="github">GitHub</button>
-          <button class="pen-btn" data-act="google">Google</button></div>
         <div class="pen-providers"><input type="email" placeholder="you@email.com">
-          <button class="pen-btn ghost" data-act="email">Email link</button></div>`
-      el.querySelector('[data-act="github"]')!.addEventListener('click', () => (location.href = this.api.loginUrl('github')))
-      el.querySelector('[data-act="google"]')!.addEventListener('click', () => (location.href = this.api.loginUrl('google')))
-      el.querySelector('[data-act="email"]')!.addEventListener('click', async () => {
-        const email = (el.querySelector('input') as HTMLInputElement).value.trim()
+          <button class="pen-btn" data-act="email">Email me a link</button></div>`
+      const submit = async () => {
+        const input = el.querySelector('input') as HTMLInputElement
+        const email = input.value.trim()
         if (!email) return
         const res = await this.api.emailLogin(email)
-        if (res.link) location.href = res.link
-        else alert('Check your email for a sign-in link.')
-      })
+        if (res.link) location.href = res.link // dev mode returns the link directly
+        else { input.value = ''; input.placeholder = 'Check your email ✉️' }
+      }
+      el.querySelector('[data-act="email"]')!.addEventListener('click', submit)
+      el.querySelector('input')!.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') submit() })
     }
     document.body.appendChild(el)
     this.loginEl = el
