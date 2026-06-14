@@ -392,13 +392,32 @@ export class Penumbra {
   // ---- selection → compose -------------------------------------------------
 
   private onSelection() {
-    if (this.responsePanel) return // while writing a response, selection feeds the panel's "insert quote"
     const sel = window.getSelection()
-    if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !sel.toString().trim()) return
+    if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !sel.toString().trim()) { this.removeQuoteBtn(); return }
     const range = sel.getRangeAt(0)
     if (!this.root.contains(range.commonAncestorContainer)) return
+    // While the response panel is open, a selection offers a "Quote" button that
+    // appends to the response instead of opening the inline comment composer.
+    if (this.responsePanel) { this.showQuoteButton(range.cloneRange()); return }
     this.openCompose(range.cloneRange()) // clone: a stored draft must not move with the selection
   }
+
+  private quoteBtn?: HTMLElement
+  private showQuoteButton(range: Range) {
+    this.removeQuoteBtn()
+    const rect = range.getBoundingClientRect()
+    const b = document.createElement('button')
+    b.className = 'pen-addbtn'
+    b.setAttribute('data-pen-ui', '')
+    b.textContent = '❝ Quote'
+    b.style.left = `${window.scrollX + rect.left + rect.width / 2}px`
+    b.style.top = `${window.scrollY + rect.top}px`
+    b.onmousedown = (e) => { e.preventDefault(); e.stopPropagation() }
+    b.onclick = () => { this.responsePanel?.appendQuote(range); window.getSelection()?.removeAllRanges(); this.removeQuoteBtn() }
+    this.layer.appendChild(b)
+    this.quoteBtn = b
+  }
+  private removeQuoteBtn() { this.quoteBtn?.remove(); this.quoteBtn = undefined }
 
   // Close the compose box. With persist=true, a non-empty box is kept as an
   // in-memory draft (shown as a draft highlight, reopenable); empty is discarded.
@@ -480,6 +499,7 @@ export class Penumbra {
   private onDocMouseDown(e: MouseEvent) {
     if ((e.target as HTMLElement).closest('[data-pen-ui]')) return
     this.dismissCompose(true) // keep what you typed as a draft
+    this.removeQuoteBtn()
     this.layer.querySelectorAll('.pen-card.floating').forEach((n) => n.remove())
   }
 
@@ -509,17 +529,6 @@ export class Penumbra {
     bar.innerHTML = `
       <button class="pen-tbtn" data-act="toggle" title="Show/hide highlights">✦ <span data-label>Highlights</span></button>
       <span class="pen-sep"></span>
-      <select data-act="filter" title="Filter">
-        <option value="all">All</option>
-        <option value="unread">Unread</option>
-        <option value="mine">Mine</option>
-        <option value="author">Author replies</option>
-      </select>
-      <span class="pen-sep"></span>
-      <button class="pen-tbtn" data-act="prev" title="Previous">‹</button>
-      <span class="pen-count" data-count>0</span>
-      <button class="pen-tbtn" data-act="next" title="Next">›</button>
-      <span class="pen-sep"></span>
       <button class="pen-tbtn" data-act="response" title="Write a full response">✍ Response</button>
       ${this.isAuthor ? '<button class="pen-tbtn" data-act="reviews" title="See everyone\'s responses">👁 Reviews</button>' : ''}`
     bar.querySelector('[data-act="toggle"]')!.addEventListener('click', () => {
@@ -528,13 +537,6 @@ export class Penumbra {
       this.renderAll()
     })
     bar.querySelector('[data-act="toggle"]')!.classList.add('active')
-    bar.querySelector('[data-act="filter"]')!.addEventListener('change', (e) => {
-      this.filter = (e.target as HTMLSelectElement).value as Filter
-      this.focused = null
-      this.renderAll()
-    })
-    bar.querySelector('[data-act="prev"]')!.addEventListener('click', () => this.nav(-1))
-    bar.querySelector('[data-act="next"]')!.addEventListener('click', () => this.nav(1))
     bar.querySelector('[data-act="response"]')!.addEventListener('click', () => this.toggleResponse())
     bar.querySelector('[data-act="reviews"]')?.addEventListener('click', () => this.toggleReviews())
     document.body.appendChild(bar)
@@ -565,6 +567,7 @@ export class Penumbra {
       userName: this.user.name ?? 'you',
       onClose: () => {
         this.responsePanel = undefined
+        this.removeQuoteBtn()
         this.toolbar?.querySelector('[data-act="response"]')?.classList.remove('active')
         this.renderHighlights()
       },
@@ -572,13 +575,7 @@ export class Penumbra {
     this.responsePanel.open()
   }
 
-  private updateToolbar() {
-    if (!this.toolbar) return
-    const list = this.visibleComments()
-    const idx = list.findIndex((i) => i.anno.id === this.focused)
-    this.toolbar.querySelector('[data-count]')!.textContent = list.length
-      ? `${idx >= 0 ? idx + 1 : '–'}/${list.length}` : '0'
-  }
+  private updateToolbar() { /* count/nav removed from the toolbar */ }
 
   // ---- tooltip + login -----------------------------------------------------
 

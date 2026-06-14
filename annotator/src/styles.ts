@@ -162,6 +162,10 @@ export const CSS = `
 ::highlight(penumbra-quote) { background-color: rgba(132, 165, 157, 0.34); }
 ::highlight(penumbra-quote-active) { background-color: rgba(132, 165, 157, 0.72); }
 
+/* when a panel is docked, collapse Quartz's sidebars and give content the room */
+body.pen-panel-open #quartz-body { grid-template: "grid-header" "grid-center" "grid-footer" / auto !important; }
+body.pen-panel-open #quartz-body .sidebar { display: none !important; }
+
 /* ---- response panel: side-by-side essay editor ---- */
 .pen-panel {
   position: fixed; top: 0; right: 0; bottom: 0; width: 440px; max-width: 92vw; z-index: 2147483646;

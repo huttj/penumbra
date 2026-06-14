@@ -124,9 +124,8 @@ responses.post('/submit', async (c) => {
   return c.json({ ok: true, path, commit: result.commit, url: result.url })
 })
 
-// Compose the committed markdown: frontmatter + essay + live quotes.
+// Compose the committed markdown: frontmatter + essay (quotes are inline already).
 function composeDoc(row: any, source: string): string {
-  const quotes = (JSON.parse(row.quotes || '[]') as any[]).filter((q) => !q.dismissed)
   const fm = [
     '---',
     'penumbra: response',
@@ -139,9 +138,5 @@ function composeDoc(row: any, source: string): string {
     '---',
     '',
   ].filter((l) => l !== '').join('\n')
-  let body = (row.body ?? '').trim()
-  if (quotes.length) {
-    body += '\n\n---\n\n**Quoting:**\n\n' + quotes.map((q) => `> ${String(q.text).replace(/\n/g, ' ')}`).join('\n>\n')
-  }
-  return `${fm}\n${body}\n`
+  return `${fm}\n${(row.body ?? '').trim()}\n`
 }
