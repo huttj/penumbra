@@ -48,10 +48,16 @@ export class Penumbra {
   private hovered: string | null = null
   private hoverRaf = false
   private relayoutQueued = false
+  private railEntries: { el: HTMLElement; blk: Block }[] = []
+  private railRO?: ResizeObserver
+  private repoQueued = false
+  private railLeft = 0
+  private quietTimer: any = null
 
   private responsePanel?: ResponsePanelLike
   private reviewsPanel?: ReviewsPanel
   private layer!: HTMLElement
+  private styleEl!: HTMLStyleElement
   private toolbar?: HTMLElement
   private loginEl?: HTMLElement
   private compose?: HTMLElement
@@ -80,9 +86,10 @@ export class Penumbra {
   }
 
   async init() {
-    const style = document.createElement('style')
-    style.textContent = CSS
-    document.head.appendChild(style)
+    this.styleEl = document.createElement('style')
+    this.styleEl.setAttribute('data-pen', '')
+    this.styleEl.textContent = CSS
+    document.head.appendChild(this.styleEl)
 
     this.layer = document.createElement('div')
     this.layer.setAttribute('data-pen-ui', '')
@@ -116,6 +123,12 @@ export class Penumbra {
   async reload() {
     this.dismissCompose(); this.removeQuoteBtn()
     this.focused = this.hovered = null
+    // Quartz's SPA reconciliation can strip our injected nodes — re-establish them
+    // (this is why highlights vanished after sidebar navigation until a refresh).
+    if (!this.styleEl.isConnected) document.head.appendChild(this.styleEl)
+    if (!this.layer.isConnected) document.body.appendChild(this.layer)
+    if (!this.toolbar?.isConnected) this.renderToolbar()
+    if (!this.loginEl?.isConnected) this.renderLogin()
     this.root = this.resolveRoot()
     this.source = this.computeSource()
     await this.loadDoc()
@@ -156,6 +169,20 @@ export class Penumbra {
     this.renderAll()
   }
 
+  // Save without re-parsing/re-rendering, so an open inline editor isn't destroyed.
+  private saveQuiet(card?: HTMLElement) {
+    const setState = (s: string) => { const el = card?.querySelector('[data-cardsave]'); if (el) el.textContent = s }
+    setState('saving…')
+    clearTimeout(this.quietTimer)
+    this.quietTimer = setTimeout(async () => {
+      const body = serializeResponse(this.preamble, this.blocks.map((b) => ({ quotes: b.quotes, note: b.note })))
+      const quotes = extractBlockquotes(body).map((text, i) => ({
+        id: `q${i}`, text, selector: locateText(text, this.root) ?? [{ type: 'TextQuoteSelector', exact: text }],
+      }))
+      try { await this.api.saveResponse(this.source, body, quotes, this.commitSha); setState('saved') } catch { setState('save failed') }
+    }, 600)
+  }
+
   private blockById = (id: string | null) => this.blocks.find((b) => b.id === id)
   private docY = (r: Range): number => r.getBoundingClientRect().top + window.scrollY
   private cards = () => this.blocks.filter((b) => !b.isEmoji && b.ranges.length)
@@ -191,33 +218,51 @@ export class Penumbra {
   }
 
   private layoutRightRail() {
+    this.railRO?.disconnect()
     this.layer.querySelectorAll('.pen-card.rail').forEach((n) => n.remove())
+    this.railEntries = []
     if (!this.highlightsOn || this.responsePanel) return
     const rootRect = this.root.getBoundingClientRect()
     if (window.innerWidth - rootRect.right < 300) return // no room
+    this.railLeft = window.scrollX + rootRect.right + 24
 
     const list = this.cards().sort((a, b) => this.docY(a.ranges[0]) - this.docY(b.ranges[0]))
     if (!list.length) return
-    const railLeft = window.scrollX + rootRect.right + 24
-
-    const els = list.map((blk) => {
+    for (const blk of list) {
       const card = this.buildCard(blk, this.focused === blk.id)
-      card.style.left = `${railLeft}px`; card.style.top = '-9999px'
+      card.style.left = `${this.railLeft}px`; card.style.top = '-9999px'
       this.layer.appendChild(card)
-      return card
-    })
-    const hs = els.map((c) => c.offsetHeight)
-    const anchor = list.map((b) => this.docY(b.ranges[0]))
+      this.railEntries.push({ el: card, blk })
+    }
+    // Re-pack whenever any card changes height (expand, image load, editor grow).
+    this.railRO = new ResizeObserver(() => this.queueReposition())
+    this.railEntries.forEach((e) => this.railRO!.observe(e.el))
+    this.repositionRail()
+  }
+
+  private queueReposition() {
+    if (this.repoQueued) return
+    this.repoQueued = true
+    requestAnimationFrame(() => { this.repoQueued = false; this.repositionRail() })
+  }
+
+  // Pack cards by their anchor without rebuilding them — each card knows its own
+  // height, and the focused one is pinned to its quote with neighbours flowing away.
+  private repositionRail() {
+    const entries = this.railEntries
+    if (!entries.length) return
+    const hs = entries.map((e) => e.el.offsetHeight)
+    const anchor = entries.map((e) => (e.blk.ranges[0] ? this.docY(e.blk.ranges[0]) : 0))
     const pos = anchor.slice()
-    const fi = list.findIndex((b) => b.id === this.focused)
+    const fi = entries.findIndex((e) => e.blk.id === this.focused)
     if (fi >= 0) {
       pos[fi] = anchor[fi]
-      for (let i = fi + 1; i < list.length; i++) pos[i] = Math.max(anchor[i], pos[i - 1] + hs[i - 1] + GAP)
+      for (let i = fi + 1; i < entries.length; i++) pos[i] = Math.max(anchor[i], pos[i - 1] + hs[i - 1] + GAP)
       for (let i = fi - 1; i >= 0; i--) pos[i] = Math.min(anchor[i], pos[i + 1] - hs[i] - GAP)
     } else {
-      for (let i = 1; i < list.length; i++) pos[i] = Math.max(anchor[i], pos[i - 1] + hs[i - 1] + GAP)
+      for (let i = 1; i < entries.length; i++) pos[i] = Math.max(anchor[i], pos[i - 1] + hs[i - 1] + GAP)
     }
-    els.forEach((c, i) => (c.style.top = `${Math.max(0, pos[i])}px`))
+    entries.forEach((e, i) => (e.el.style.top = `${Math.max(0, pos[i])}px`))
   }
 
   private layoutLeftRail() {
@@ -256,13 +301,15 @@ export class Penumbra {
       card.innerHTML = `${quoteHtml}
         <div class="pen-reply"><textarea class="pen-note">${esc(blk.note)}</textarea>
           <div class="pen-row"><span class="pen-foot"><a data-act="delete">Delete</a></span>
-            <button class="pen-btn" data-act="save">Save</button></div></div>`
+            <span class="pen-savestate" data-cardsave></span></div></div>`
       const ta = card.querySelector('textarea') as HTMLTextAreaElement
       autoGrow(ta)
       setTimeout(() => ta.focus(), 0)
-      const save = () => { blk.note = ta.value; this.saveDoc() }
-      card.querySelector('[data-act="save"]')!.addEventListener('click', save)
-      ta.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); save() } })
+      // Autosave — clicking out must not lose changes. Updates the block in place
+      // and saves quietly (no rebuild that would destroy the open editor).
+      const onEdit = () => { blk.note = ta.value; this.queueReposition(); this.saveQuiet(card) }
+      ta.addEventListener('input', onEdit)
+      ta.addEventListener('blur', onEdit)
       card.querySelector('[data-act="delete"]')!.addEventListener('click', () => {
         if (!confirm('Delete this comment?')) return
         this.blocks = this.blocks.filter((b) => b.id !== blk.id); this.saveDoc()
@@ -402,6 +449,7 @@ export class Penumbra {
   // ---- toolbar + panels ----------------------------------------------------
 
   private renderToolbar() {
+    this.toolbar?.remove()
     const bar = document.createElement('div')
     bar.className = 'pen-toolbar'; bar.setAttribute('data-pen-ui', '')
     bar.innerHTML = `

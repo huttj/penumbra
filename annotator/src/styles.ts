@@ -81,13 +81,15 @@ export const CSS = `
 .pen-muted { color: var(--pen-muted); font-style: italic; }
 /* images in a margin card are small fixed-height previews (full size lives in the
    editor); the fixed height also keeps card measurement stable so they don't overlap */
-.pen-card .pen-md img { height: 56px; width: auto; max-width: 100%; border-radius: 6px; vertical-align: top; }
+.pen-card .pen-md img { display: block; height: 56px; width: auto; max-width: 100%; border-radius: 6px; margin: 4px 0; }
 .pen-thread { padding: 2px 12px 10px; }
 .pen-comment { padding: 2px 0; }
 /* tighten paragraph spacing inside card notes (default <p> margins were huge) */
-.pen-card .pen-md p { margin: 0.3em 0; }
+.pen-card .pen-md p { margin: 0.15em 0; }
 .pen-card .pen-md p:first-child { margin-top: 0; }
 .pen-card .pen-md p:last-child { margin-bottom: 0; }
+.pen-card .pen-md > :first-child { margin-top: 0; }
+.pen-card .pen-md > :last-child { margin-bottom: 0; }
 .pen-comment + .pen-comment { border-top: 1px solid var(--pen-border); }
 .pen-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--pen-muted); margin-bottom: 2px; }
 .pen-meta img { width: 18px; height: 18px; border-radius: 50%; }
@@ -215,7 +217,7 @@ body.pen-panel-open .center { max-width: none !important; min-width: 0 !importan
 .pen-prose h1, .pen-prose h2, .pen-prose h3 { line-height: 1.25; margin: .7em 0 .3em; }
 .pen-prose ul, .pen-prose ol { padding-left: 1.4em; margin: .5em 0; }
 .pen-prose a { color: var(--pen-accent); }
-.pen-prose img { max-width: 100%; border-radius: 8px; }
+.pen-prose img { display: block; max-width: 100%; border-radius: 8px; margin: 8px 0; }
 .pen-prose code { background: var(--pen-chip); padding: 1px 5px; border-radius: 4px; font-size: .9em; }
 .pen-prose pre { background: var(--pen-chip); padding: 10px 12px; border-radius: 8px; overflow: auto; }
 .pen-prose pre code { background: none; padding: 0; }

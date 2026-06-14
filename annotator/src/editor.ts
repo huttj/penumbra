@@ -57,8 +57,7 @@ export class ResponsePanel {
         <strong>Your response</strong>
         <span class="pen-savestate" data-save></span>
         <span style="flex:1"></span>
-        <button class="pen-btn" data-act="submit" title="Commit this response to the author's repo">Submit</button>
-        <button class="pen-tbtn" data-act="close" title="Close">✕</button>
+        <button class="pen-tbtn" data-act="close" title="Hide">⇥</button>
       </div>
       <div class="pen-editor" data-editor></div>`
     document.body.appendChild(el)
@@ -80,14 +79,21 @@ export class ResponsePanel {
       },
       onUpdate: () => {
         this.body = (this.editor.storage as any).markdown.getMarkdown()
-        this.renderQuoteHighlights(); this.wireBlockquoteHover(); this.scheduleSave()
+        this.renderQuoteHighlights(); this.scheduleSave()
       },
       onSelectionUpdate: () => this.amplifyAtCursor(),
     })
 
-    this.wireBlockquoteHover()
+    // Delegated hover (survives ProseMirror re-renders): hovering a blockquote in
+    // the editor emphasizes its source highlight; off a quote, falls back to cursor.
+    const mount = el.querySelector('[data-editor]') as HTMLElement
+    mount.addEventListener('mouseover', (e) => {
+      this.flashBlockquote(null)
+      const bq = (e.target as HTMLElement).closest('blockquote')
+      if (bq) this.amplify((bq.textContent ?? '').trim()); else this.amplifyAtCursor()
+    })
+    mount.addEventListener('mouseleave', () => this.amplifyAtCursor())
     el.querySelector('[data-act="close"]')!.addEventListener('click', () => this.close())
-    el.querySelector('[data-act="submit"]')!.addEventListener('click', () => this.submit())
     document.addEventListener('mousemove', this.onSourceHover, { passive: true })
     setTimeout(() => this.editor.commands.focus('end'), 0)
   }
@@ -95,11 +101,17 @@ export class ResponsePanel {
   appendQuote(range: Range) {
     const exact = (selectorsFromRange(range, this.root)?.find((s: any) => s.type === 'TextQuoteSelector') as any)?.exact ?? ''
     if (!exact) return
-    const end = this.editor.state.doc.content.size
-    this.editor.chain().focus('end')
-      .insertContentAt(end, { type: 'blockquote', content: [{ type: 'paragraph', content: [{ type: 'text', text: exact }] }] })
-      .insertContentAt(this.editor.state.doc.content.size, { type: 'paragraph' })
-      .run()
+    const doc = this.editor.state.doc
+    const last = doc.lastChild
+    const lastEmpty = !!last && last.type.name === 'paragraph' && last.content.size === 0
+    const blockquote = { type: 'blockquote', content: [{ type: 'paragraph', content: [{ type: 'text', text: exact }] }] }
+    if (lastEmpty) {
+      // reuse the existing trailing blank line; the cursor lands on it, after the quote
+      this.editor.chain().insertContentAt(doc.content.size - last!.nodeSize, blockquote).focus('end').run()
+    } else {
+      // add the quote plus one fresh blank line; cursor on the new line
+      this.editor.chain().insertContentAt(doc.content.size, [blockquote, { type: 'paragraph' }]).focus('end').run()
+    }
   }
 
   private handleImagePaste(e: ClipboardEvent): boolean {
@@ -128,19 +140,15 @@ export class ResponsePanel {
     const h = (window as any).CSS.highlights
     if (ranges.length) h.set('penumbra-quote', new (globalThis as any).Highlight(...ranges)); else h.delete('penumbra-quote')
   }
-  private wireBlockquoteHover() {
-    this.el.querySelectorAll<HTMLElement>('.pen-prose blockquote').forEach((bq) => {
-      const t = (bq.textContent ?? '').trim()
-      bq.onmouseenter = () => this.amplify(t)
-      bq.onmouseleave = () => this.amplify(null)
-    })
-  }
+  // Emphasize the source quote at OR before the cursor: if the cursor sits in a
+  // blockquote, that one; otherwise the nearest blockquote above it.
   private amplifyAtCursor() {
-    const $from = this.editor.state.selection.$from
-    for (let d = $from.depth; d > 0; d--) {
-      if ($from.node(d).type.name === 'blockquote') return this.amplify($from.node(d).textContent.trim())
-    }
-    this.amplify(null)
+    const pos = this.editor.state.selection.from
+    let text: string | null = null
+    this.editor.state.doc.descendants((node, p) => {
+      if (node.type.name === 'blockquote' && p <= pos) text = node.textContent.trim()
+    })
+    this.amplify(text)
   }
   private amplify(text: string | null) {
     if (!HL) return
@@ -153,21 +161,21 @@ export class ResponsePanel {
     this.hoverRaf = true
     requestAnimationFrame(() => {
       this.hoverRaf = false
-      if ((e.target as HTMLElement)?.closest?.('[data-pen-ui]')) return
+      if ((e.target as HTMLElement)?.closest?.('[data-pen-ui]')) return // over the editor: handled there
+      let hit: string | null = null
       for (const t of extractBlockquotes(this.body)) {
         const r = this.rangeFor(t)
-        if (r && [...r.getClientRects()].some((rc) => e.clientX >= rc.left && e.clientX <= rc.right && e.clientY >= rc.top && e.clientY <= rc.bottom)) {
-          this.amplify(t); this.flashBlockquote(t); return
-        }
+        if (r && [...r.getClientRects()].some((rc) => e.clientX >= rc.left && e.clientX <= rc.right && e.clientY >= rc.top && e.clientY <= rc.bottom)) { hit = t; break }
       }
+      if (hit) { this.amplify(hit); this.flashBlockquote(hit) }
+      else { this.flashBlockquote(null); this.amplifyAtCursor() }
     })
   }
-  private flashBlockquote(text: string) {
-    const norm = (s: string) => s.replace(/\s+/g, ' ').trim()
-    const target = norm(text)
+  private flashBlockquote(text: string | null) {
+    const target = text == null ? null : text.replace(/\s+/g, ' ').trim()
     let hit: HTMLElement | null = null
     this.el.querySelectorAll<HTMLElement>('.pen-prose blockquote').forEach((bq) => {
-      const on = norm(bq.textContent ?? '') === target
+      const on = target != null && (bq.textContent ?? '').replace(/\s+/g, ' ').trim() === target
       bq.classList.toggle('pen-bq-active', on)
       if (on) hit = bq
     })
