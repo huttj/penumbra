@@ -132,7 +132,7 @@ export const CSS = `
   background: var(--pen-bg); border: 1px solid var(--pen-border); border-radius: 11px;
   box-shadow: var(--pen-shadow); padding: 10px; }
 .pen-composebar { margin-top: 8px; display: flex; gap: 8px; align-items: center; justify-content: space-between; }
-.pen-emojibar { display: flex; gap: 3px; flex-wrap: wrap; min-width: 0; }
+.pen-emojibar { display: flex; gap: 3px; align-items: center; }
 .pen-emojibar button { font-size: 16px; background: var(--pen-chip); border: 1px solid var(--pen-border);
   border-radius: 8px; padding: 2px 6px; cursor: pointer; line-height: 1.25; }
 .pen-emojibar button:hover { background: var(--pen-chip-hover); transform: scale(1.08); }
