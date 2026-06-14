@@ -32,11 +32,12 @@ export class Api {
     return true
   }
 
-  async me(): Promise<User | null> {
-    if (!this.token) return null
+  async me(): Promise<{ user: User | null; isAuthor: boolean }> {
+    if (!this.token) return { user: null, isAuthor: false }
     const r = await fetch(`${this.base}/me`, { headers: this.headers() })
-    if (!r.ok) return null
-    return (await r.json()).user
+    if (!r.ok) return { user: null, isAuthor: false }
+    const j = await r.json()
+    return { user: j.user, isAuthor: !!j.isAuthor }
   }
 
   async list(source: string, include: string[] = []): Promise<Annotation[]> {
@@ -47,17 +48,32 @@ export class Api {
     return (await r.json()).items
   }
 
-  async create(target: any, bodyText: string, docVersion?: string): Promise<Annotation> {
+  async create(
+    target: any,
+    bodyText: string,
+    opts: { kind?: 'comment' | 'emoji'; docVersion?: string } = {}
+  ): Promise<Annotation> {
     const r = await fetch(`${this.base}/annotations`, {
       method: 'POST',
       headers: this.headers(true),
-      body: JSON.stringify({ target, body: [{ type: 'TextualBody', value: bodyText }], docVersion }),
+      body: JSON.stringify({ target, kind: opts.kind ?? 'comment', body: [{ type: 'TextualBody', value: bodyText }], docVersion: opts.docVersion }),
     })
     if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `create failed (${r.status})`)
     return r.json()
   }
 
-  async patch(id: string, patch: { status?: string; bodyText?: string }): Promise<Annotation> {
+  async reply(id: string, text: string): Promise<any> {
+    const rel = id.split('/annotations/')[1]
+    const r = await fetch(`${this.base}/annotations/${rel}/replies`, {
+      method: 'POST',
+      headers: this.headers(true),
+      body: JSON.stringify({ text }),
+    })
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `reply failed (${r.status})`)
+    return r.json()
+  }
+
+  async patch(id: string, patch: { status?: string; bodyText?: string; acknowledged?: boolean }): Promise<Annotation> {
     const rel = id.split('/annotations/')[1]
     const r = await fetch(`${this.base}/annotations/${rel}`, {
       method: 'PATCH',

@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { auth } from './auth'
-import { apiBase, currentUser, normalizeSource, now, uuid, type Env } from './lib'
+import { apiBase, currentUser, isAuthor, normalizeSource, now, uuid, type Env } from './lib'
 
 const app = new Hono<{ Bindings: Env }>()
 
@@ -21,7 +21,7 @@ app.route('/auth', auth)
 
 app.get('/me', async (c) => {
   const user = await currentUser(c)
-  return c.json({ user })
+  return c.json({ user, isAuthor: isAuthor(c.env, user?.id) })
 })
 
 app.post('/auth/logout', async (c) => {
@@ -60,7 +60,9 @@ app.post('/annotations', async (c) => {
   const source = input?.target?.source
   const selector = input?.target?.selector
   const text = input?.body?.[0]?.value ?? input?.bodyText
+  const kind = input?.kind === 'emoji' ? 'emoji' : 'comment'
   if (!source || !selector || !text) return c.json({ error: 'target.source, target.selector and a body value are required' }, 400)
+  if (kind === 'emoji' && String(text).length > 8) return c.json({ error: 'emoji body too long' }, 400)
 
   const norm = normalizeSource(source)
   const id = `${apiBase(c)}/annotations/${uuid()}`
@@ -69,23 +71,56 @@ app.post('/annotations', async (c) => {
     '@context': 'http://www.w3.org/ns/anno.jsonld',
     id,
     type: 'Annotation',
-    motivation: 'commenting',
+    motivation: kind === 'emoji' ? 'assessing' : 'commenting',
     created,
-    creator: { id: user.id, name: user.name, avatar: user.avatar, via: user.via },
-    body: [{ type: 'TextualBody', purpose: 'commenting', format: 'text/markdown', value: String(text) }],
+    creator: { id: user.id, name: user.name, avatar: user.avatar, via: user.via, authored: isAuthor(c.env, user.id) },
+    body: [{ type: 'TextualBody', purpose: kind === 'emoji' ? 'assessing' : 'commenting', format: 'text/markdown', value: String(text) }],
     target: { source: norm, selector },
+    'penumbra:kind': kind,
     'penumbra:status': 'active',
+    'penumbra:acknowledged': false,
+    'penumbra:replies': [],
     'penumbra:docVersion': input?.docVersion ?? null,
   }
 
   await c.env.DB.prepare(
-    `INSERT INTO annotations (id, source, creator_id, status, doc_version, created, updated, data)
-     VALUES (?, ?, ?, 'active', ?, ?, ?, ?)`
+    `INSERT INTO annotations (id, source, creator_id, status, kind, acknowledged, doc_version, created, updated, data)
+     VALUES (?, ?, ?, 'active', ?, 0, ?, ?, ?, ?)`
   )
-    .bind(id, norm, user.id, input?.docVersion ?? null, created, created, JSON.stringify(annotation))
+    .bind(id, norm, user.id, kind, input?.docVersion ?? null, created, created, JSON.stringify(annotation))
     .run()
 
   return c.json(annotation, 201)
+})
+
+// Append a linear reply to a thread. Any signed-in user may reply.
+app.post('/annotations/:id{.+}/replies', async (c) => {
+  const user = await currentUser(c)
+  if (!user) return c.json({ error: 'sign in to reply' }, 401)
+  const id = `${apiBase(c)}/annotations/${c.req.param('id')}`
+
+  const row = await c.env.DB.prepare(`SELECT data FROM annotations WHERE id = ?`).bind(id).first<{ data: string }>()
+  if (!row) return c.json({ error: 'not found' }, 404)
+
+  const { text } = await c.req.json<{ text?: string }>().catch(() => ({}))
+  if (!text || !String(text).trim()) return c.json({ error: 'reply text required' }, 400)
+
+  const anno = JSON.parse(row.data)
+  const reply = {
+    id: uuid(),
+    created: now(),
+    creator: { id: user.id, name: user.name, avatar: user.avatar, via: user.via, authored: isAuthor(c.env, user.id) },
+    body: String(text),
+  }
+  anno['penumbra:replies'] = [...(anno['penumbra:replies'] ?? []), reply]
+  anno.modified = reply.created
+  // A new reply makes the thread "unread" for the author again, unless the author wrote it.
+  if (!reply.creator.authored) anno['penumbra:acknowledged'] = false
+
+  await c.env.DB.prepare(`UPDATE annotations SET updated = ?, acknowledged = ?, data = ? WHERE id = ?`)
+    .bind(reply.created, anno['penumbra:acknowledged'] ? 1 : 0, JSON.stringify(anno), id)
+    .run()
+  return c.json(reply, 201)
 })
 
 // Edit the body or change status (resolve/reopen). Owner only for now.
@@ -98,22 +133,32 @@ app.patch('/annotations/:id{.+}', async (c) => {
     .bind(id)
     .first<{ creator_id: string; data: string }>()
   if (!row) return c.json({ error: 'not found' }, 404)
-  if (row.creator_id !== user.id) return c.json({ error: 'not your annotation' }, 403)
 
-  const patch = await c.req.json<{ status?: string; bodyText?: string }>().catch(() => ({}))
+  const patch = await c.req.json<{ status?: string; bodyText?: string; acknowledged?: boolean }>().catch(() => ({}))
   const anno = JSON.parse(row.data)
+  const owner = row.creator_id === user.id
+  const author = isAuthor(c.env, user.id)
+
+  // Acknowledge/unread toggle is an author-only action.
+  if (typeof patch.acknowledged === 'boolean') {
+    if (!author) return c.json({ error: 'only the page author can acknowledge' }, 403)
+    anno['penumbra:acknowledged'] = patch.acknowledged
+  }
+  // Status + body edits are owner-only.
   let status = anno['penumbra:status'] ?? 'active'
   if (patch.status && ['active', 'resolved', 'orphaned'].includes(patch.status)) {
+    if (!owner) return c.json({ error: 'not your annotation' }, 403)
     status = patch.status
     anno['penumbra:status'] = status
   }
   if (typeof patch.bodyText === 'string') {
+    if (!owner) return c.json({ error: 'not your annotation' }, 403)
     anno.body = [{ type: 'TextualBody', purpose: 'commenting', format: 'text/markdown', value: patch.bodyText }]
   }
   anno.modified = now()
 
-  await c.env.DB.prepare(`UPDATE annotations SET status = ?, updated = ?, data = ? WHERE id = ?`)
-    .bind(status, anno.modified, JSON.stringify(anno), id)
+  await c.env.DB.prepare(`UPDATE annotations SET status = ?, acknowledged = ?, updated = ?, data = ? WHERE id = ?`)
+    .bind(status, anno['penumbra:acknowledged'] ? 1 : 0, anno.modified, JSON.stringify(anno), id)
     .run()
   return c.json(anno)
 })

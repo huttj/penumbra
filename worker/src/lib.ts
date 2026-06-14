@@ -11,6 +11,14 @@ export type Env = {
   GOOGLE_CLIENT_SECRET?: string
   RESEND_API_KEY?: string
   MAIL_FROM?: string
+  AUTHOR_IDS?: string // comma-separated user ids who "own" pages (can acknowledge; replies badged)
+}
+
+export function authorIds(env: Env): string[] {
+  return (env.AUTHOR_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+}
+export function isAuthor(env: Env, userId: string | null | undefined): boolean {
+  return !!userId && authorIds(env).includes(userId)
 }
 
 export type User = {

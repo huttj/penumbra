@@ -20,3 +20,6 @@ DEV_LOGIN = "true"
 # Leave blank locally; the worker falls back to the request origin.
 PUBLIC_API_BASE = ""
 MAIL_FROM = "Penumbra <onboarding@resend.dev>"
+# Page-owner identities: can mark threads acknowledged; their replies are badged.
+# Local dev login produces "email:josh@dev.local". Add your real ids for prod.
+AUTHOR_IDS = "email:josh@dev.local,email:squashai@gmail.com"
