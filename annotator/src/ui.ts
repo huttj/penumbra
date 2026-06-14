@@ -212,8 +212,8 @@ export class Penumbra {
       const chip = document.createElement('div')
       chip.className = 'pen-emote'; chip.setAttribute('data-pen-ui', ''); chip.dataset.blockId = blk.id
       chip.textContent = blk.note.trim()
-      chip.addEventListener('mouseenter', () => { this.setHovered(blk.id); this.showTooltip(chip, blk.quotes.join(' / ')) })
-      chip.addEventListener('mouseleave', () => { this.setHovered(null); this.hideTooltip() })
+      chip.addEventListener('mouseenter', () => this.setHovered(blk.id))
+      chip.addEventListener('mouseleave', () => this.setHovered(null))
       chip.addEventListener('click', () => this.focus(blk.id))
       this.layer.appendChild(chip)
       const top = Math.max(this.docY(blk.ranges[0]), bottom + 6)

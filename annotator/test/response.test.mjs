@@ -30,10 +30,11 @@ const { renderMarkdown, parseResponse, serializeResponse, isEmojiNote } = await 
   ok('emoji: emoji + text is NOT emoji', isEmojiNote('☺️ jhvkhj') === false)
   ok('emoji: lone punctuation is NOT emoji', isEmojiNote('?') === false)
   ok('emoji: single letter is NOT emoji', isEmojiNote('k') === false)
-  // adjacent quotes (blank-separated, no prose between) group into one block
-  const adj = parseResponse(`> quote one here\n\n> quote two here\n\nshared note`)
-  ok('parse: adjacent quotes grouped', adj.blocks.length === 1 && adj.blocks[0].quotes.length === 2)
-  ok('parse: grouped note is shared', adj.blocks[0].note === 'shared note')
+  // back-to-back quotes stay SEPARATE blocks (each its own comment)
+  const adj = parseResponse(`> quote one here\n\n> quote two here\n\nsecond note`)
+  ok('parse: back-to-back quotes are separate', adj.blocks.length === 2)
+  ok('parse: first stays a bare quote', adj.blocks[0].note === '')
+  ok('parse: second owns its note', adj.blocks[1].note === 'second note')
   // round-trip
   const back = serializeResponse(preamble, blocks)
   const re = parseResponse(back)

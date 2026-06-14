@@ -73,15 +73,19 @@ export const CSS = `
 
 .pen-quote {
   font-size: 12px; color: var(--pen-muted); border-left: 3px solid var(--pen-accent);
-  padding: 6px 10px; margin: 10px 10px 0; background: var(--pen-chip);
+  padding: 5px 9px; margin: 8px 10px 8px; background: var(--pen-chip);
   border-radius: 0 6px 6px 0; white-space: pre-wrap; word-wrap: break-word;
 }
 /* clamp only in the compact card; expanded shows everything */
 .pen-card.compact .pen-quote { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .pen-muted { color: var(--pen-muted); font-style: italic; }
 .pen-card .pen-note { min-height: 80px; }
-.pen-thread { padding: 8px 12px 10px; }
-.pen-comment { padding: 6px 0; }
+.pen-thread { padding: 2px 12px 10px; }
+.pen-comment { padding: 2px 0; }
+/* tighten paragraph spacing inside card notes (default <p> margins were huge) */
+.pen-card .pen-md p { margin: 0.3em 0; }
+.pen-card .pen-md p:first-child { margin-top: 0; }
+.pen-card .pen-md p:last-child { margin-bottom: 0; }
 .pen-comment + .pen-comment { border-top: 1px solid var(--pen-border); }
 .pen-meta { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--pen-muted); margin-bottom: 2px; }
 .pen-meta img { width: 18px; height: 18px; border-radius: 50%; }
@@ -104,7 +108,7 @@ export const CSS = `
 .pen-foot a:hover { text-decoration: underline; color: var(--pen-accent); }
 .pen-foot a[data-act="delete"]:hover { color: var(--pen-unread); }
 
-.pen-reply { padding: 0 12px 12px; }
+.pen-reply { padding: 6px 12px 12px; }
 .pen-reply textarea, .pen-compose textarea {
   width: 100%; min-height: 54px; resize: vertical; font: inherit;
   background: var(--pen-bg); color: var(--pen-fg);

@@ -17,15 +17,14 @@ export function extractBlockquotes(md: string): string[] {
   return out.filter((t) => t.length >= 6)
 }
 
-// A response block: one or more (adjacent) quotes that own the note beneath them.
+// A response block: a quote (one or more '>' lines) and the note it owns.
 export type RBlock = { quotes: string[]; note: string }
 
 const isQ = (l: string | undefined) => /^\s*>/.test(l ?? '')
-const isBlank = (l: string | undefined) => (l ?? '').trim() === ''
 
 // Parse a response doc into a leading preamble + a sequence of quote-blocks.
-// A quote owns the prose below it until the next quote; quotes separated only by
-// blank lines are "adjacent" and grouped into one block that shares the note.
+// Each quote is its own block and owns the prose below it until the next quote
+// (so two back-to-back quotes stay two separate comments, not one).
 export function parseResponse(md: string): { preamble: string; blocks: RBlock[] } {
   const lines = (md ?? '').replace(/\r\n/g, '\n').split('\n')
   let i = 0
@@ -34,19 +33,11 @@ export function parseResponse(md: string): { preamble: string; blocks: RBlock[] 
 
   const blocks: RBlock[] = []
   while (i < lines.length) {
-    const quotes: string[] = []
-    while (isQ(lines[i])) {
-      const q: string[] = []
-      while (i < lines.length && isQ(lines[i])) { q.push(lines[i].replace(/^\s*>\s?/, '')); i++ }
-      quotes.push(q.join(' ').trim())
-      let j = i
-      while (j < lines.length && isBlank(lines[j])) j++
-      if (j < lines.length && isQ(lines[j])) { i = j; continue } // adjacent quote → same block
-      break
-    }
+    const q: string[] = []
+    while (i < lines.length && isQ(lines[i])) { q.push(lines[i].replace(/^\s*>\s?/, '')); i++ }
     const note: string[] = []
     while (i < lines.length && !isQ(lines[i])) { note.push(lines[i]); i++ }
-    blocks.push({ quotes, note: note.join('\n').trim() })
+    blocks.push({ quotes: [q.join(' ').trim()], note: note.join('\n').trim() })
   }
   return { preamble: preamble.join('\n').trim(), blocks }
 }

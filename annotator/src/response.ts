@@ -23,6 +23,7 @@ export class ResponsePanel {
   private mode: 'write' | 'preview' = 'write'
   private saveTimer: any = null
   private savedAt = ''
+  private hoverRaf = false
 
   constructor(o: Opts) {
     this.api = o.api; this.root = o.root; this.source = o.source
@@ -37,6 +38,7 @@ export class ResponsePanel {
   }
 
   close() {
+    document.removeEventListener('mousemove', this.onSourceHover)
     this.flushSave()
     if (HL) { const h = (window as any).CSS.highlights; h.delete('penumbra-quote'); h.delete('penumbra-quote-active') }
     this.el?.remove()
@@ -73,6 +75,43 @@ export class ResponsePanel {
     this.ta.addEventListener('paste', () => this.onPaste())
     this.ta.addEventListener('keyup', () => this.amplifyAtCursor())
     this.ta.addEventListener('click', () => this.amplifyAtCursor())
+    document.addEventListener('mousemove', this.onSourceHover, { passive: true })
+  }
+
+  // Hover a source highlight → emphasize it + select/scroll to its quote in the editor.
+  private onSourceHover = (e: MouseEvent) => {
+    if (this.hoverRaf || this.mode !== 'write') return
+    this.hoverRaf = true
+    requestAnimationFrame(() => {
+      this.hoverRaf = false
+      if ((e.target as HTMLElement)?.closest?.('[data-pen-ui]')) return
+      for (const t of this.extractQuotes()) {
+        const r = this.rangeFor(t)
+        if (r && [...r.getClientRects()].some((rc) => e.clientX >= rc.left && e.clientX <= rc.right && e.clientY >= rc.top && e.clientY <= rc.bottom)) {
+          this.amplify(t)
+          if (document.activeElement !== this.ta) this.selectBlockquote(t) // don't hijack the cursor mid-type
+          return
+        }
+      }
+    })
+  }
+
+  private selectBlockquote(text: string) {
+    const lines = this.ta.value.split('\n')
+    for (let i = 0; i < lines.length; i++) {
+      if (!/^\s*>/.test(lines[i])) continue
+      let e = i
+      while (e < lines.length - 1 && /^\s*>/.test(lines[e + 1])) e++
+      const t = lines.slice(i, e + 1).map((l) => l.replace(/^\s*>\s?/, '')).join(' ').trim()
+      if (t === text) {
+        this.ta.selectionStart = lines.slice(0, i).join('\n').length + (i > 0 ? 1 : 0)
+        this.ta.selectionEnd = lines.slice(0, e + 1).join('\n').length
+        const lh = parseFloat(getComputedStyle(this.ta).lineHeight) || 22
+        this.ta.scrollTop = Math.max(0, i * lh - this.ta.clientHeight / 2)
+        return
+      }
+      i = e
+    }
   }
 
   // ---- quotes: derived ENTIRELY from the essay text (the single source) ----
