@@ -163,9 +163,11 @@ export class ResponsePanel {
     })
   }
   private flashBlockquote(text: string) {
+    const norm = (s: string) => s.replace(/\s+/g, ' ').trim()
+    const target = norm(text)
     let hit: HTMLElement | null = null
     this.el.querySelectorAll<HTMLElement>('.pen-prose blockquote').forEach((bq) => {
-      const on = (bq.textContent ?? '').trim() === text
+      const on = norm(bq.textContent ?? '') === target
       bq.classList.toggle('pen-bq-active', on)
       if (on) hit = bq
     })

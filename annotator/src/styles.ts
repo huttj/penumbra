@@ -79,7 +79,9 @@ export const CSS = `
 /* clamp only in the compact card; expanded shows everything */
 .pen-card.compact .pen-quote { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .pen-muted { color: var(--pen-muted); font-style: italic; }
-.pen-card .pen-note { min-height: 80px; }
+/* images in a margin card are small fixed-height previews (full size lives in the
+   editor); the fixed height also keeps card measurement stable so they don't overlap */
+.pen-card .pen-md img { height: 56px; width: auto; max-width: 100%; border-radius: 6px; vertical-align: top; }
 .pen-thread { padding: 2px 12px 10px; }
 .pen-comment { padding: 2px 0; }
 /* tighten paragraph spacing inside card notes (default <p> margins were huge) */
@@ -220,7 +222,7 @@ body.pen-panel-open .center { max-width: none !important; min-width: 0 !importan
 .pen-prose blockquote { border-left: 3px solid var(--pen-accent); margin: .6em 0; padding: .2em 0 .2em 12px;
   color: var(--pen-muted); background: rgba(132,165,157,.10); border-radius: 0 6px 6px 0; transition: background .15s; }
 .pen-prose blockquote p { margin: .15em 0; }
-.pen-prose blockquote.pen-bq-active { background: rgba(132,165,157,.30); }
+.pen-prose blockquote.pen-bq-active { background: rgba(132,165,157,.45); box-shadow: inset 3px 0 0 var(--pen-accent); }
 .pen-preview { flex: 1; overflow: auto; padding: 14px 16px; }
 .pen-preview h1, .pen-preview h2, .pen-preview h3 { line-height: 1.25; }
 .pen-preview blockquote { border-left: 3px solid var(--pen-accent); margin: .6em 0; padding: .2em 0 .2em 12px; color: var(--pen-muted); }
