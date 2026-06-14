@@ -2,6 +2,7 @@ import { Hono } from 'hono'
 import {
   apiBase, createSession, now, redirectWithToken, upsertUser, uuid, type Env,
 } from './lib'
+import { sendEmail } from './email'
 
 export const auth = new Hono<{ Bindings: Env }>()
 
@@ -158,36 +159,11 @@ auth.get('/email/verify', async (c) => {
   return redirectWithToken(c.env.SITE_ORIGIN, row.return_to ?? undefined, sess)
 })
 
-function parseFrom(s?: string): { name: string; address: string } {
-  const m = /^(.*?)<(.+)>/.exec(s ?? '')
-  if (m) return { name: m[1].trim() || 'Penumbra', address: m[2].trim() }
-  return { name: 'Penumbra', address: (s ?? 'noreply@penumbra.page').trim() }
-}
-
 async function sendMagicLink(env: Env, email: string, link: string): Promise<boolean> {
-  if (!env.ZEPTOMAIL_TOKEN) {
-    console.log(`[penumbra] magic link for ${email}: ${link}`)
-    return false
-  }
-  const res = await fetch(env.ZEPTOMAIL_URL ?? 'https://api.zeptomail.com/v1.1/email', {
-    method: 'POST',
-    headers: {
-      Authorization: `Zoho-enczapikey ${env.ZEPTOMAIL_TOKEN}`,
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({
-      from: parseFrom(env.MAIL_FROM),
-      to: [{ email_address: { address: email } }],
-      subject: 'Your Penumbra sign-in link',
-      htmlbody: `<p>Click to sign in and comment:</p><p><a href="${link}">${link}</a></p><p>This link expires in 30 minutes.</p>`,
-    }),
-  })
-  if (!res.ok) {
-    console.log(`[penumbra] ZeptoMail send failed (${res.status}): ${await res.text().catch(() => '')}`)
-    return false
-  }
-  return true
+  const html = `<p>Click to sign in and comment:</p><p><a href="${link}">${link}</a></p><p>This link expires in 30 minutes.</p>`
+  const sent = await sendEmail(env, email, 'Your Penumbra sign-in link', html)
+  if (!sent) console.log(`[penumbra] magic link for ${email}: ${link}`)
+  return sent
 }
 
 // ---- Dev login (local testing only) ---------------------------------------

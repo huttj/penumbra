@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { apiBase, currentUser, isAuthor, normalizeSource, now, uuid, type Env } from './lib'
 import { commitFile, pageSlug, slugify } from './git'
+import { authorEmails, sendEmail } from './email'
 
 // Response documents are PRIVATE: a reader can only read/write their own; the
 // page author can read everyone's (the "reviews for this page" workspace).
@@ -111,6 +112,15 @@ responses.post('/submit', async (c) => {
     return c.json({ error: e.message }, 502)
   }
   await c.env.DB.prepare(`UPDATE responses SET status = 'submitted', updated = ? WHERE id = ?`).bind(now(), row.id).run()
+
+  // Notify the author(s), fire-and-forget.
+  const page = pageSlug(source)
+  const subject = `New response from ${row.creator_name ?? 'a reader'} on ${page}`
+  const html = `<p><b>${row.creator_name ?? 'A reader'}</b> submitted a response to <a href="${source}">${page}</a>.</p>` +
+    (result.url ? `<p><a href="${result.url}">View the committed feedback doc →</a></p>` : '')
+  const send = async () => { for (const to of authorEmails(c.env)) await sendEmail(c.env, to, subject, html) }
+  try { c.executionCtx.waitUntil(send()) } catch { await send() }
+
   return c.json({ ok: true, path, commit: result.commit, url: result.url })
 })
 

@@ -2,7 +2,11 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { auth } from './auth'
 import { responses } from './responses'
+import { authorEmails, sendEmail } from './email'
 import { apiBase, currentUser, isAuthor, normalizeSource, now, uuid, type Env } from './lib'
+
+const htmlEscape = (s: string): string =>
+  s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
 
 const app = new Hono<{ Bindings: Env }>()
 
@@ -132,6 +136,28 @@ app.post('/annotations/:id{.+}/replies', async (c) => {
   await c.env.DB.prepare(`UPDATE annotations SET updated = ?, acknowledged = ?, data = ? WHERE id = ?`)
     .bind(reply.created, anno['penumbra:acknowledged'] ? 1 : 0, JSON.stringify(anno), id)
     .run()
+
+  // Notify the other side of the conversation, fire-and-forget.
+  const src: string = anno.target?.source ?? ''
+  const page = src.replace(/^https?:\/\/[^/]+\/?/, '') || 'a page'
+  const subject = `${user.name ?? 'Someone'} replied on ${page}`
+  const html = `<p><b>${htmlEscape(user.name ?? 'Someone')}</b> replied to a thread on <a href="${src}">${page}</a>:</p>` +
+    `<blockquote>${htmlEscape(String(text)).slice(0, 400)}</blockquote>`
+  const notify = async () => {
+    if (reply.creator.authored) {
+      // author replied → email the reader who started the thread
+      const rootId = anno.creator?.id
+      if (rootId && !isAuthor(c.env, rootId)) {
+        const u = await c.env.DB.prepare(`SELECT email FROM users WHERE id = ?`).bind(rootId).first<{ email: string | null }>()
+        if (u?.email) await sendEmail(c.env, u.email, subject, html)
+      }
+    } else {
+      // reader replied → email the author(s)
+      for (const to of authorEmails(c.env)) await sendEmail(c.env, to, subject, html)
+    }
+  }
+  try { c.executionCtx.waitUntil(notify()) } catch { await notify() }
+
   return c.json(reply, 201)
 })
 
