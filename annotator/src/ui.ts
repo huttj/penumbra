@@ -1,8 +1,9 @@
 import { Api, type Annotation, type User } from './api'
 import { rangeFromSelectors, selectorsFromRange } from './anchor'
+import { ResponsePanel } from './response'
 import { CSS } from './styles'
 
-type Config = { api: string; source?: string; sourceBase?: string; root?: string; docVersion?: string }
+type Config = { api: string; source?: string; sourceBase?: string; root?: string; docVersion?: string; commitSha?: string }
 type Filter = 'all' | 'unread' | 'mine' | 'author'
 type Item = { anno: Annotation; range: Range | null }
 
@@ -29,6 +30,7 @@ export class Penumbra {
   private narrow = false
   private composeCtx?: { selectors: any; range: Range; ta: HTMLTextAreaElement; draftId: string | null }
   private draftSeq = 0
+  private responsePanel?: ResponsePanel
 
   private layer!: HTMLElement // absolute container scrolling with the document
   private toolbar?: HTMLElement
@@ -390,6 +392,7 @@ export class Penumbra {
   // ---- selection → compose -------------------------------------------------
 
   private onSelection() {
+    if (this.responsePanel) return // while writing a response, selection feeds the panel's "insert quote"
     const sel = window.getSelection()
     if (!sel || sel.isCollapsed || sel.rangeCount === 0 || !sel.toString().trim()) return
     const range = sel.getRangeAt(0)
@@ -515,7 +518,9 @@ export class Penumbra {
       <span class="pen-sep"></span>
       <button class="pen-tbtn" data-act="prev" title="Previous">‹</button>
       <span class="pen-count" data-count>0</span>
-      <button class="pen-tbtn" data-act="next" title="Next">›</button>`
+      <button class="pen-tbtn" data-act="next" title="Next">›</button>
+      <span class="pen-sep"></span>
+      <button class="pen-tbtn" data-act="response" title="Write a full response">✍ Response</button>`
     bar.querySelector('[data-act="toggle"]')!.addEventListener('click', () => {
       this.highlightsOn = !this.highlightsOn
       bar.querySelector('[data-act="toggle"]')!.classList.toggle('active', this.highlightsOn)
@@ -529,8 +534,28 @@ export class Penumbra {
     })
     bar.querySelector('[data-act="prev"]')!.addEventListener('click', () => this.nav(-1))
     bar.querySelector('[data-act="next"]')!.addEventListener('click', () => this.nav(1))
+    bar.querySelector('[data-act="response"]')!.addEventListener('click', () => this.toggleResponse())
     document.body.appendChild(bar)
     this.toolbar = bar
+  }
+
+  private toggleResponse() {
+    if (this.responsePanel) { this.responsePanel.close(); return }
+    if (!this.user) return this.flashLogin()
+    this.toolbar?.querySelector('[data-act="response"]')?.classList.add('active')
+    this.responsePanel = new ResponsePanel({
+      api: this.api,
+      root: this.root,
+      source: this.source,
+      commitSha: this.cfg.commitSha ?? null,
+      userName: this.user.name ?? 'you',
+      onClose: () => {
+        this.responsePanel = undefined
+        this.toolbar?.querySelector('[data-act="response"]')?.classList.remove('active')
+        this.renderHighlights()
+      },
+    })
+    this.responsePanel.open()
   }
 
   private updateToolbar() {

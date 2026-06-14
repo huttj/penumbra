@@ -100,6 +100,43 @@ export function rangeFromSelectors(selectors: Selector[], root: Node): Range | n
   return range
 }
 
+// Strict quote resolver: matches ONLY the exact quoted text (no position
+// fallback). Returns null when the exact text is gone — i.e. the source was
+// edited where this quote points, which is exactly our "stale/touched" signal.
+export function resolveQuoteStrict(selectors: Selector[], root: Node): Range | null {
+  const quote = selectors.find((s) => s.type === 'TextQuoteSelector') as TextQuoteSelector | undefined
+  if (!quote?.exact) return null
+  const idx = buildIndex(root)
+  const start = bestQuoteMatch(idx.text, quote)
+  if (start < 0) return null
+  const a = offsetToPoint(idx, start)
+  const b = offsetToPoint(idx, start + quote.exact.length)
+  if (!a || !b) return null
+  const range = document.createRange()
+  range.setStart(a.node, a.offset)
+  range.setEnd(b.node, b.offset)
+  return range
+}
+
+// Best-effort: does this exact string occur in the source? Used for paste-match
+// (auto-anchoring pasted quotes) — returns selectors if found, else null.
+export function locateText(text: string, root: Node): Selector[] | null {
+  const trimmed = text.trim()
+  if (trimmed.length < 8) return null // too short to anchor reliably
+  const idx = buildIndex(root)
+  const at = idx.text.indexOf(trimmed)
+  if (at < 0) return null
+  return [
+    {
+      type: 'TextQuoteSelector',
+      exact: trimmed,
+      prefix: idx.text.slice(Math.max(0, at - CONTEXT_LEN), at),
+      suffix: idx.text.slice(at + trimmed.length, at + trimmed.length + CONTEXT_LEN),
+    },
+    { type: 'TextPositionSelector', start: at, end: at + trimmed.length },
+  ]
+}
+
 // When `exact` appears more than once, pick the occurrence whose surrounding
 // text best matches the recorded prefix/suffix.
 function bestQuoteMatch(text: string, q: TextQuoteSelector): number {

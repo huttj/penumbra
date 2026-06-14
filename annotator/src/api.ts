@@ -89,6 +89,29 @@ export class Api {
     await fetch(`${this.base}/annotations/${rel}`, { method: 'DELETE', headers: this.headers() })
   }
 
+  // ---- response docs (private: your own only; author can read all) ----
+  async getResponse(source: string): Promise<any | null> {
+    const r = await fetch(`${this.base}/responses?source=${encodeURIComponent(source)}`, { headers: this.headers() })
+    if (!r.ok) return null
+    return (await r.json()).response
+  }
+
+  async saveResponse(source: string, body: string, quotes: any[], sourceSha?: string | null): Promise<any> {
+    const r = await fetch(`${this.base}/responses`, {
+      method: 'POST',
+      headers: this.headers(true),
+      body: JSON.stringify({ source, body, quotes, sourceSha }),
+    })
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error ?? `save failed (${r.status})`)
+    return r.json()
+  }
+
+  async getAllResponses(source: string): Promise<any[]> {
+    const r = await fetch(`${this.base}/responses/all?source=${encodeURIComponent(source)}`, { headers: this.headers() })
+    if (!r.ok) return []
+    return (await r.json()).responses
+  }
+
   loginUrl(provider: 'github' | 'google'): string {
     return `${this.base}/auth/${provider}/start?return=${encodeURIComponent(location.href)}`
   }

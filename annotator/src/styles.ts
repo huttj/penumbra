@@ -157,4 +157,39 @@ export const CSS = `
 .pen-login .pen-providers { display: flex; gap: 6px; margin-top: 6px; align-items: center; }
 .pen-login input { background: var(--pen-bg); color: var(--pen-fg); border: 1px solid var(--pen-border);
   border-radius: 7px; padding: 6px 8px; font: inherit; width: 150px; }
+
+/* quote highlights driven by the response editor */
+::highlight(penumbra-quote) { background-color: rgba(132, 165, 157, 0.34); }
+::highlight(penumbra-quote-active) { background-color: rgba(132, 165, 157, 0.72); }
+
+/* ---- response panel: side-by-side essay editor ---- */
+.pen-panel {
+  position: fixed; top: 0; right: 0; bottom: 0; width: 440px; max-width: 92vw; z-index: 2147483646;
+  background: var(--pen-bg); border-left: 1px solid var(--pen-border);
+  box-shadow: -8px 0 30px rgba(0,0,0,.18); display: flex; flex-direction: column;
+}
+.pen-panel-head { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--pen-border); }
+.pen-savestate { font-size: 12px; color: var(--pen-muted); }
+.pen-panel-tools { padding: 8px 12px; border-bottom: 1px solid var(--pen-border); }
+.pen-refs { max-height: 32%; overflow: auto; padding: 6px 12px; border-bottom: 1px solid var(--pen-border); }
+.pen-refs:empty { display: none; }
+.pen-refs-title { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--pen-muted); margin: 2px 0 6px; }
+.pen-ref { display: flex; align-items: center; gap: 7px; padding: 4px 0; font-size: 12.5px; cursor: pointer; }
+.pen-ref.stale { opacity: .5; }
+.pen-ref.stale .pen-ref-text { text-decoration: line-through; }
+.pen-ref-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.pen-ref-dot.ok { background: var(--pen-tertiary, #84a59d); }
+.pen-ref-dot.gone { background: var(--pen-unread); }
+.pen-ref-dot.dim { background: var(--pen-muted); }
+.pen-ref-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pen-ref-acts { display: flex; gap: 8px; align-items: center; }
+.pen-ref-acts em { color: var(--pen-unread); font-style: normal; font-size: 11px; }
+.pen-ref-acts a { color: var(--pen-accent); cursor: pointer; }
+.pen-essay { flex: 1; border: none; resize: none; padding: 14px; outline: none;
+  font: 14px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--pen-bg); color: var(--pen-fg); }
+.pen-preview { flex: 1; overflow: auto; padding: 14px 16px; }
+.pen-preview h1, .pen-preview h2, .pen-preview h3 { line-height: 1.25; }
+.pen-preview blockquote { border-left: 3px solid var(--pen-accent); margin: .6em 0; padding: .2em 0 .2em 12px; color: var(--pen-muted); }
+.pen-preview img { max-width: 100%; }
+.pen-preview pre { background: var(--pen-chip); padding: 10px; border-radius: 8px; overflow: auto; }
 `
