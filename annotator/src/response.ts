@@ -20,9 +20,7 @@ export class ResponsePanel {
   private el!: HTMLElement
   private ta!: HTMLTextAreaElement
   private body = ''
-  private quotes: Quote[] = []
   private mode: 'write' | 'preview' = 'write'
-  private seq = 0
   private saveTimer: any = null
   private savedAt = ''
 
@@ -33,7 +31,7 @@ export class ResponsePanel {
 
   async open() {
     const existing = await this.api.getResponse(this.source).catch(() => null)
-    if (existing) { this.body = existing.body ?? ''; this.quotes = existing.quotes ?? []; this.savedAt = existing.updated ?? '' }
+    if (existing) { this.body = existing.body ?? ''; this.savedAt = existing.updated ?? '' }
     this.build()
     this.renderQuoteHighlights()
   }
@@ -72,20 +70,17 @@ export class ResponsePanel {
     el.querySelector('[data-act="mode"]')!.addEventListener('click', () => this.toggleMode())
     el.querySelector('[data-act="submit"]')!.addEventListener('click', () => this.submit())
     this.ta.addEventListener('input', () => { this.body = this.ta.value; this.renderQuoteHighlights(); this.scheduleSave() })
-    this.ta.addEventListener('paste', (e) => this.onPaste(e))
+    this.ta.addEventListener('paste', () => this.onPaste())
     this.ta.addEventListener('keyup', () => this.amplifyAtCursor())
     this.ta.addEventListener('click', () => this.amplifyAtCursor())
   }
 
-  // ---- quotes ----
-  // Append a blockquote of the page selection to the end of the response, and
-  // record its anchor so it can be highlighted in the source.
+  // ---- quotes: derived ENTIRELY from the essay text (the single source) ----
+  // Append a blockquote of the page selection to the end of the response.
   appendQuote(range: Range) {
-    const selectors = selectorsFromRange(range, this.root)
-    if (!selectors) return
-    const exact = (selectors.find((s: any) => s.type === 'TextQuoteSelector') as any)?.exact ?? ''
+    const sels = selectorsFromRange(range, this.root)
+    const exact = (sels?.find((s: any) => s.type === 'TextQuoteSelector') as any)?.exact ?? ''
     if (!exact) return
-    if (!this.quotes.some((q) => q.text === exact)) this.quotes.push({ id: `q${++this.seq}`, selector: selectors, text: exact })
     this.body = `${this.ta.value.replace(/\s+$/, '')}\n\n> ${exact.replace(/\n/g, ' ')}\n\n`
     this.ta.value = this.body
     this.ta.selectionStart = this.ta.selectionEnd = this.ta.value.length
@@ -93,52 +88,49 @@ export class ResponsePanel {
     this.renderQuoteHighlights(); this.scheduleSave()
   }
 
-  private onPaste(e: ClipboardEvent) {
-    const text = e.clipboardData?.getData('text/plain') ?? ''
-    // Let the browser insert the text; just try to anchor it in the background.
-    setTimeout(() => {
-      this.body = this.ta.value; this.scheduleSave()
-      const found = locateText(text, this.root)
-      if (found) {
-        const exact = (found.find((s: any) => s.type === 'TextQuoteSelector') as any).exact
-        if (!this.quotes.some((q) => q.text === exact)) { this.quotes.push({ id: `q${++this.seq}`, selector: found, text: exact }); this.renderQuoteHighlights() }
-      }
-    }, 0)
+  private onPaste() {
+    setTimeout(() => { this.body = this.ta.value; this.renderQuoteHighlights(); this.scheduleSave() }, 0)
   }
 
-  private quoteRange(q: Quote): Range | null {
-    return resolveQuoteStrict(q.selector, this.root)
+  // Pull blockquote passages from the essay (consecutive '>' lines = one quote).
+  private extractQuotes(): string[] {
+    const out: string[] = []; let cur: string[] = []
+    for (const ln of this.ta.value.split('\n')) {
+      if (/^\s*>/.test(ln)) cur.push(ln.replace(/^\s*>\s?/, ''))
+      else if (cur.length) { out.push(cur.join(' ').trim()); cur = [] }
+    }
+    if (cur.length) out.push(cur.join(' ').trim())
+    return out.filter((t) => t.length >= 6)
   }
 
-  // Quotes still referenced by the essay text (whitespace-insensitive) — so
-  // deleting a blockquote from the editor removes its source highlight.
-  private liveQuotes(): Quote[] {
-    const b = this.ta.value.replace(/\s+/g, ' ')
-    return this.quotes.filter((q) => b.includes(q.text.replace(/\s+/g, ' ').trim()))
+  private rangeFor(text: string): Range | null {
+    return resolveQuoteStrict([{ type: 'TextQuoteSelector', exact: text } as any], this.root)
   }
 
-  // Every live quote that still matches gets a subtle highlight in the source.
+  // Highlights derive from the current blockquotes, so editing or deleting a
+  // quote moves/removes its source highlight to match — no drift.
   private renderQuoteHighlights() {
     if (!HL) return
-    const ranges = this.liveQuotes().map((q) => this.quoteRange(q)).filter(Boolean) as Range[]
+    const ranges = this.extractQuotes().map((t) => this.rangeFor(t)).filter(Boolean) as Range[]
     const h = (window as any).CSS.highlights
     if (ranges.length) h.set('penumbra-quote', new (globalThis as any).Highlight(...ranges)); else h.delete('penumbra-quote')
   }
 
-  // Emphasize the source highlight for the quote the editor cursor sits in.
+  // Emphasize the source for the blockquote the editor cursor sits in.
   private amplifyAtCursor() {
-    const text = this.ta.value, pos = this.ta.selectionStart
-    const start = text.lastIndexOf('\n', pos - 1) + 1
-    let end = text.indexOf('\n', pos); if (end < 0) end = text.length
-    const line = text.slice(start, end).replace(/^>\s?/, '').trim()
-    const q = line.length >= 6 ? this.quotes.find((x) => x.text.includes(line) || line.includes(x.text)) : undefined
-    this.amplify(q)
+    const lines = this.ta.value.split('\n')
+    const li = this.ta.value.slice(0, this.ta.selectionStart).split('\n').length - 1
+    if (!/^\s*>/.test(lines[li] ?? '')) return this.amplify(null)
+    let s = li, e = li
+    while (s > 0 && /^\s*>/.test(lines[s - 1])) s--
+    while (e < lines.length - 1 && /^\s*>/.test(lines[e + 1])) e++
+    this.amplify(lines.slice(s, e + 1).map((l) => l.replace(/^\s*>\s?/, '')).join(' ').trim())
   }
-  private amplify(q?: Quote) {
+  private amplify(text: string | null) {
     if (!HL) return
     const h = (window as any).CSS.highlights
-    const range = q ? this.quoteRange(q) : null
-    if (range) h.set('penumbra-quote-active', new (globalThis as any).Highlight(range)); else h.delete('penumbra-quote-active')
+    const r = text && text.length >= 6 ? this.rangeFor(text) : null
+    if (r) h.set('penumbra-quote-active', new (globalThis as any).Highlight(r)); else h.delete('penumbra-quote-active')
   }
 
   // ---- preview ----
@@ -151,11 +143,8 @@ export class ResponsePanel {
       // hovering a quoted passage in the preview amplifies it in the source
       pv.querySelectorAll('blockquote').forEach((bq) => {
         const t = (bq.textContent ?? '').trim()
-        const q = this.quotes.find((x) => x.text.includes(t) || t.includes(x.text))
-        if (q) {
-          bq.addEventListener('mouseenter', () => this.amplify(q))
-          bq.addEventListener('mouseleave', () => this.amplify(undefined))
-        }
+        bq.addEventListener('mouseenter', () => this.amplify(t))
+        bq.addEventListener('mouseleave', () => this.amplify(null))
       })
       pv.hidden = false; this.ta.hidden = true; btn.textContent = 'Edit'
     } else { pv.hidden = true; this.ta.hidden = false; btn.textContent = 'Preview' }
@@ -174,8 +163,12 @@ export class ResponsePanel {
   }
   private async flushSave() {
     clearTimeout(this.saveTimer)
+    // Quote anchors are derived from the essay text at save time (no drift).
+    const quotes = this.extractQuotes().map((text, i) => ({
+      id: `q${i}`, text, selector: locateText(text, this.root) ?? [{ type: 'TextQuoteSelector', exact: text }],
+    }))
     try {
-      const res = await this.api.saveResponse(this.source, this.body, this.quotes, this.commitSha)
+      const res = await this.api.saveResponse(this.source, this.body, quotes, this.commitSha)
       this.savedAt = res.updated ?? ''; this.setSave('saved')
     } catch (e: any) { this.setSave('save failed') }
   }
