@@ -134,9 +134,11 @@ auth.post('/email/start', async (c) => {
   const link = `${apiBase(c)}/auth/email/verify?token=${token}`
   const sent = await sendMagicLink(c.env, email, link)
 
-  // In dev (or when email isn't configured) hand the link back so testing isn't blocked.
-  const devReveal = c.env.DEV_LOGIN === 'true' || !sent
-  return c.json({ ok: true, sent, ...(devReveal ? { link } : {}) })
+  // Only reveal the link in local dev. NEVER leak it in prod — even on a send
+  // failure — or anyone could request a sign-in link for any address.
+  if (c.env.DEV_LOGIN === 'true') return c.json({ ok: true, sent, link })
+  if (!sent) return c.json({ ok: false, error: 'Could not send the sign-in email right now.' }, 502)
+  return c.json({ ok: true, sent: true })
 })
 
 auth.get('/email/verify', async (c) => {
