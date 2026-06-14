@@ -1,6 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { auth } from './auth'
+import { responses } from './responses'
 import { apiBase, currentUser, isAuthor, normalizeSource, now, uuid, type Env } from './lib'
 
 const app = new Hono<{ Bindings: Env }>()
@@ -18,6 +19,7 @@ app.use('*', (c, next) =>
 app.get('/', (c) => c.json({ name: 'penumbra-api', ok: true }))
 
 app.route('/auth', auth)
+app.route('/responses', responses)
 
 app.get('/me', async (c) => {
   const user = await currentUser(c)
@@ -38,16 +40,26 @@ app.post('/auth/logout', async (c) => {
 app.get('/annotations', async (c) => {
   const source = c.req.query('source')
   if (!source) return c.json({ error: 'source required' }, 400)
+
+  // Feedback is private. Anonymous → nothing. Readers → only their own threads.
+  // The page author → everyone's.
+  const user = await currentUser(c)
+  if (!user) return c.json({ items: [] })
+  const author = isAuthor(c.env, user.id)
+
   const include = (c.req.query('include') ?? '').split(',').filter(Boolean)
   const statuses = ['active', ...include]
   const placeholders = statuses.map(() => '?').join(',')
 
-  const rows = await c.env.DB.prepare(
-    `SELECT data FROM annotations WHERE source = ? AND status IN (${placeholders}) ORDER BY created ASC`
-  )
-    .bind(normalizeSource(source), ...statuses)
-    .all<{ data: string }>()
+  let sql = `SELECT data FROM annotations WHERE source = ? AND status IN (${placeholders})`
+  const binds: unknown[] = [normalizeSource(source), ...statuses]
+  if (!author) {
+    sql += ` AND creator_id = ?`
+    binds.push(user.id)
+  }
+  sql += ` ORDER BY created ASC`
 
+  const rows = await c.env.DB.prepare(sql).bind(...binds).all<{ data: string }>()
   return c.json({ items: (rows.results ?? []).map((r) => JSON.parse(r.data)) })
 })
 
