@@ -1,38 +1,39 @@
 import { Api } from './api'
 import { locateText, resolveQuoteStrict, selectorsFromRange } from './anchor'
-import { renderMarkdown } from './markdown'
+import { extractBlockquotes, renderMarkdown } from './markdown'
+import { Editor } from '@tiptap/core'
+import StarterKit from '@tiptap/starter-kit'
+import Link from '@tiptap/extension-link'
+import Image from '@tiptap/extension-image'
+import { Markdown } from 'tiptap-markdown'
 
-type Quote = { id: string; selector: any; text: string }
 type Opts = { api: Api; root: HTMLElement; source: string; commitSha: string | null; userName: string; onClose: () => void }
 
 const HL = !!(window as any).CSS?.highlights && typeof (globalThis as any).Highlight !== 'undefined'
 
-// A reader's evolving response document for the current page: a markdown essay
-// plus anchored quotes of the source. Private to the reader (server-enforced).
+// A reader's response doc, edited as rich text (TipTap). Stored as markdown, so it
+// stays the single source the page margins are derived from. Blockquotes are the
+// anchored quotes; everything else is the reader's writing (links, images, lists…).
 export class ResponsePanel {
   private api: Api
   private root: HTMLElement
   private source: string
   private commitSha: string | null
-  private userName: string
   private onClose: () => void
 
   private el!: HTMLElement
-  private ta!: HTMLTextAreaElement
+  private editor!: Editor
   private body = ''
-  private mode: 'write' | 'preview' = 'write'
   private saveTimer: any = null
-  private savedAt = ''
   private hoverRaf = false
 
   constructor(o: Opts) {
     this.api = o.api; this.root = o.root; this.source = o.source
-    this.commitSha = o.commitSha; this.userName = o.userName; this.onClose = o.onClose
+    this.commitSha = o.commitSha; this.onClose = o.onClose
   }
 
   async open() {
-    const existing = await this.api.getResponse(this.source).catch(() => null)
-    if (existing) { this.body = existing.body ?? ''; this.savedAt = existing.updated ?? '' }
+    this.body = (await this.api.getResponse(this.source).catch(() => null))?.body ?? ''
     this.build()
     this.renderQuoteHighlights()
   }
@@ -41,12 +42,12 @@ export class ResponsePanel {
     document.removeEventListener('mousemove', this.onSourceHover)
     this.flushSave()
     if (HL) { const h = (window as any).CSS.highlights; h.delete('penumbra-quote'); h.delete('penumbra-quote-active') }
+    this.editor?.destroy()
     this.el?.remove()
     unpushAside()
     this.onClose()
   }
 
-  // ---- build DOM ----
   private build() {
     const el = document.createElement('div')
     el.className = 'pen-panel'
@@ -56,118 +57,99 @@ export class ResponsePanel {
         <strong>Your response</strong>
         <span class="pen-savestate" data-save></span>
         <span style="flex:1"></span>
-        <button class="pen-tbtn" data-act="mode" title="Toggle preview">Preview</button>
         <button class="pen-btn" data-act="submit" title="Commit this response to the author's repo">Submit</button>
         <button class="pen-tbtn" data-act="close" title="Close">✕</button>
       </div>
-      <textarea class="pen-essay" data-essay placeholder="Write your response. Select text in the page to quote it; paste a passage and Penumbra will try to anchor it to the source."></textarea>
-      <div class="pen-preview" data-preview hidden></div>`
+      <div class="pen-editor" data-editor></div>`
     document.body.appendChild(el)
     this.el = el
     pushAside()
-    this.ta = el.querySelector('[data-essay]') as HTMLTextAreaElement
-    this.ta.value = this.body
 
-    el.querySelector('[data-act="close"]')!.addEventListener('click', () => this.close())
-    el.querySelector('[data-act="mode"]')!.addEventListener('click', () => this.toggleMode())
-    el.querySelector('[data-act="submit"]')!.addEventListener('click', () => this.submit())
-    this.ta.addEventListener('input', () => { this.body = this.ta.value; this.renderQuoteHighlights(); this.scheduleSave() })
-    this.ta.addEventListener('paste', () => this.onPaste())
-    this.ta.addEventListener('keyup', () => this.amplifyAtCursor())
-    this.ta.addEventListener('click', () => this.amplifyAtCursor())
-    document.addEventListener('mousemove', this.onSourceHover, { passive: true })
-  }
-
-  // Hover a source highlight → emphasize it + select/scroll to its quote in the editor.
-  private onSourceHover = (e: MouseEvent) => {
-    if (this.hoverRaf || this.mode !== 'write') return
-    this.hoverRaf = true
-    requestAnimationFrame(() => {
-      this.hoverRaf = false
-      if ((e.target as HTMLElement)?.closest?.('[data-pen-ui]')) return
-      for (const t of this.extractQuotes()) {
-        const r = this.rangeFor(t)
-        if (r && [...r.getClientRects()].some((rc) => e.clientX >= rc.left && e.clientX <= rc.right && e.clientY >= rc.top && e.clientY <= rc.bottom)) {
-          this.amplify(t)
-          if (document.activeElement !== this.ta) this.selectBlockquote(t) // don't hijack the cursor mid-type
-          return
-        }
-      }
+    this.editor = new Editor({
+      element: el.querySelector('[data-editor]') as HTMLElement,
+      extensions: [
+        StarterKit,
+        Link.configure({ openOnClick: false, autolink: true, HTMLAttributes: { target: '_blank', rel: 'noopener' } }),
+        Image.configure({ inline: false }),
+        Markdown.configure({ html: false, linkify: true, breaks: true, transformPastedText: true }),
+      ],
+      content: this.body,
+      editorProps: {
+        attributes: { class: 'pen-prose', spellcheck: 'true' },
+        handlePaste: (_view, event) => this.handleImagePaste(event),
+      },
+      onUpdate: () => {
+        this.body = (this.editor.storage as any).markdown.getMarkdown()
+        this.renderQuoteHighlights(); this.wireBlockquoteHover(); this.scheduleSave()
+      },
+      onSelectionUpdate: () => this.amplifyAtCursor(),
     })
+
+    this.wireBlockquoteHover()
+    el.querySelector('[data-act="close"]')!.addEventListener('click', () => this.close())
+    el.querySelector('[data-act="submit"]')!.addEventListener('click', () => this.submit())
+    document.addEventListener('mousemove', this.onSourceHover, { passive: true })
+    setTimeout(() => this.editor.commands.focus('end'), 0)
   }
 
-  private selectBlockquote(text: string) {
-    const lines = this.ta.value.split('\n')
-    for (let i = 0; i < lines.length; i++) {
-      if (!/^\s*>/.test(lines[i])) continue
-      let e = i
-      while (e < lines.length - 1 && /^\s*>/.test(lines[e + 1])) e++
-      const t = lines.slice(i, e + 1).map((l) => l.replace(/^\s*>\s?/, '')).join(' ').trim()
-      if (t === text) {
-        this.ta.selectionStart = lines.slice(0, i).join('\n').length + (i > 0 ? 1 : 0)
-        this.ta.selectionEnd = lines.slice(0, e + 1).join('\n').length
-        const lh = parseFloat(getComputedStyle(this.ta).lineHeight) || 22
-        this.ta.scrollTop = Math.max(0, i * lh - this.ta.clientHeight / 2)
-        return
-      }
-      i = e
-    }
-  }
-
-  // ---- quotes: derived ENTIRELY from the essay text (the single source) ----
+  // ---- quotes ----
   // Append a blockquote of the page selection to the end of the response.
   appendQuote(range: Range) {
-    const sels = selectorsFromRange(range, this.root)
-    const exact = (sels?.find((s: any) => s.type === 'TextQuoteSelector') as any)?.exact ?? ''
+    const exact = (selectorsFromRange(range, this.root)?.find((s: any) => s.type === 'TextQuoteSelector') as any)?.exact ?? ''
     if (!exact) return
-    this.body = `${this.ta.value.replace(/\s+$/, '')}\n\n> ${exact.replace(/\n/g, ' ')}\n\n`
-    this.ta.value = this.body
-    this.ta.selectionStart = this.ta.selectionEnd = this.ta.value.length
-    this.ta.focus()
-    this.renderQuoteHighlights(); this.scheduleSave()
+    const end = this.editor.state.doc.content.size
+    this.editor.chain().focus('end')
+      .insertContentAt(end, { type: 'blockquote', content: [{ type: 'paragraph', content: [{ type: 'text', text: exact }] }] })
+      .insertContentAt(this.editor.state.doc.content.size, { type: 'paragraph' })
+      .run()
   }
 
-  private onPaste() {
-    setTimeout(() => { this.body = this.ta.value; this.renderQuoteHighlights(); this.scheduleSave() }, 0)
-  }
-
-  // Pull blockquote passages from the essay (consecutive '>' lines = one quote).
-  private extractQuotes(): string[] {
-    const out: string[] = []; let cur: string[] = []
-    for (const ln of this.ta.value.split('\n')) {
-      if (/^\s*>/.test(ln)) cur.push(ln.replace(/^\s*>\s?/, ''))
-      else if (cur.length) { out.push(cur.join(' ').trim()); cur = [] }
+  private handleImagePaste(e: ClipboardEvent): boolean {
+    const items = e.clipboardData?.items
+    if (!items) return false
+    for (const it of items) {
+      if (it.type.startsWith('image/')) {
+        const file = it.getAsFile()
+        if (file) {
+          const reader = new FileReader()
+          reader.onload = () => this.editor.chain().focus().setImage({ src: String(reader.result) }).run()
+          reader.readAsDataURL(file) // inline base64 for now (R2 upload later)
+          return true
+        }
+      }
     }
-    if (cur.length) out.push(cur.join(' ').trim())
-    return out.filter((t) => t.length >= 6)
+    return false
   }
 
   private rangeFor(text: string): Range | null {
     return resolveQuoteStrict([{ type: 'TextQuoteSelector', exact: text } as any], this.root)
   }
 
-  // Highlights derive from the current blockquotes, so editing or deleting a
-  // quote moves/removes its source highlight to match — no drift.
   private renderQuoteHighlights() {
     if (!HL) return
-    const ranges = this.extractQuotes().map((t) => this.rangeFor(t)).filter(Boolean) as Range[]
+    const ranges = extractBlockquotes(this.body).map((t) => this.rangeFor(t)).filter(Boolean) as Range[]
     const h = (window as any).CSS.highlights
     if (ranges.length) h.set('penumbra-quote', new (globalThis as any).Highlight(...ranges)); else h.delete('penumbra-quote')
   }
 
-  // Emphasize the source for the quote that owns the cursor — whether the cursor
-  // is on the blockquote line or in the prose beneath it (up to the prior quote).
-  private amplifyAtCursor() {
-    const lines = this.ta.value.split('\n')
-    const li = this.ta.value.slice(0, this.ta.selectionStart).split('\n').length - 1
-    let i = li
-    while (i >= 0 && !/^\s*>/.test(lines[i] ?? '')) i--
-    if (i < 0) return this.amplify(null)
-    let s = i, e = i
-    while (s > 0 && /^\s*>/.test(lines[s - 1])) s--
-    while (e < lines.length - 1 && /^\s*>/.test(lines[e + 1])) e++
-    this.amplify(lines.slice(s, e + 1).map((l) => l.replace(/^\s*>\s?/, '')).join(' ').trim())
+  // hover a blockquote in the editor → emphasize its source highlight
+  private wireBlockquoteHover() {
+    this.el.querySelectorAll<HTMLElement>('.pen-prose blockquote').forEach((bq) => {
+      const t = (bq.textContent ?? '').trim()
+      bq.onmouseenter = () => this.amplify(t)
+      bq.onmouseleave = () => this.amplify(null)
+    })
   }
+
+  // cursor inside a blockquote → emphasize its source highlight
+  private amplifyAtCursor() {
+    const $from = this.editor.state.selection.$from
+    for (let d = $from.depth; d > 0; d--) {
+      if ($from.node(d).type.name === 'blockquote') return this.amplify($from.node(d).textContent.trim())
+    }
+    this.amplify(null)
+  }
+
   private amplify(text: string | null) {
     if (!HL) return
     const h = (window as any).CSS.highlights
@@ -175,29 +157,32 @@ export class ResponsePanel {
     if (r) h.set('penumbra-quote-active', new (globalThis as any).Highlight(r)); else h.delete('penumbra-quote-active')
   }
 
-  // ---- preview ----
-  private toggleMode() {
-    this.mode = this.mode === 'write' ? 'preview' : 'write'
-    const pv = this.el.querySelector('[data-preview]') as HTMLElement
-    const btn = this.el.querySelector('[data-act="mode"]') as HTMLElement
-    if (this.mode === 'preview') {
-      pv.innerHTML = renderMarkdown(this.composeMarkdown())
-      // hovering a quoted passage in the preview amplifies it in the source
-      pv.querySelectorAll('blockquote').forEach((bq) => {
-        const t = (bq.textContent ?? '').trim()
-        bq.addEventListener('mouseenter', () => this.amplify(t))
-        bq.addEventListener('mouseleave', () => this.amplify(null))
-      })
-      pv.hidden = false; this.ta.hidden = true; btn.textContent = 'Edit'
-    } else { pv.hidden = true; this.ta.hidden = false; btn.textContent = 'Preview' }
+  // hover a source highlight → emphasize it + flash the matching blockquote in the editor
+  private onSourceHover = (e: MouseEvent) => {
+    if (this.hoverRaf) return
+    this.hoverRaf = true
+    requestAnimationFrame(() => {
+      this.hoverRaf = false
+      if ((e.target as HTMLElement)?.closest?.('[data-pen-ui]')) return
+      for (const t of extractBlockquotes(this.body)) {
+        const r = this.rangeFor(t)
+        if (r && [...r.getClientRects()].some((rc) => e.clientX >= rc.left && e.clientX <= rc.right && e.clientY >= rc.top && e.clientY <= rc.bottom)) {
+          this.amplify(t); this.flashBlockquote(t); return
+        }
+      }
+    })
+  }
+  private flashBlockquote(text: string) {
+    let hit: HTMLElement | null = null
+    this.el.querySelectorAll<HTMLElement>('.pen-prose blockquote').forEach((bq) => {
+      const on = (bq.textContent ?? '').trim() === text
+      bq.classList.toggle('pen-bq-active', on)
+      if (on) hit = bq
+    })
+    if (hit) (hit as HTMLElement).scrollIntoView({ block: 'nearest' })
   }
 
-  // The committed doc is just the essay — quotes are inline blockquotes already.
-  composeMarkdown(): string {
-    return this.body.trim()
-  }
-
-  // ---- save ----
+  // ---- save / submit ----
   private scheduleSave() {
     this.setSave('saving…')
     clearTimeout(this.saveTimer)
@@ -205,18 +190,13 @@ export class ResponsePanel {
   }
   private async flushSave() {
     clearTimeout(this.saveTimer)
-    // Quote anchors are derived from the essay text at save time (no drift).
-    const quotes = this.extractQuotes().map((text, i) => ({
+    const quotes = extractBlockquotes(this.body).map((text, i) => ({
       id: `q${i}`, text, selector: locateText(text, this.root) ?? [{ type: 'TextQuoteSelector', exact: text }],
     }))
-    try {
-      const res = await this.api.saveResponse(this.source, this.body, quotes, this.commitSha)
-      this.savedAt = res.updated ?? ''; this.setSave('saved')
-    } catch (e: any) { this.setSave('save failed') }
+    try { const res = await this.api.saveResponse(this.source, this.body, quotes, this.commitSha); this.setSave(res ? 'saved' : 'saved') }
+    catch { this.setSave('save failed') }
   }
-  private setSave(s: string) {
-    const el = this.el?.querySelector('[data-save]'); if (el) el.textContent = s
-  }
+  private setSave(s: string) { const el = this.el?.querySelector('[data-save]'); if (el) el.textContent = s }
 
   private async submit() {
     await this.flushSave()
@@ -228,9 +208,7 @@ export class ResponsePanel {
     } catch (e: any) {
       const notReady = String(e.message).includes('not configured')
       this.setSave(notReady ? 'submit not enabled yet' : 'submit failed')
-      alert(notReady
-        ? "Submitting to the repo isn't enabled yet — the author needs to add a GitHub token. Your draft is saved."
-        : 'Submit failed: ' + e.message)
+      alert(notReady ? "Submitting isn't enabled yet — the author needs to add a GitHub token. Your draft is saved." : 'Submit failed: ' + e.message)
     }
   }
 }
@@ -266,7 +244,7 @@ export class ReviewsPanel {
           return `<div class="pen-review">
             <div class="pen-review-head"><span class="pen-name">${escapeHtml(r.creator?.name ?? 'reader')}</span>
               <span class="pen-savestate">${fmtDate(r.updated)} · ${r.status}</span></div>
-            <div class="pen-md">${renderMarkdown(r.body || '_(quotes only — no writing yet)_')}</div>
+            <div class="pen-md">${renderMarkdown(r.body || '_(no writing yet)_')}</div>
             ${quotes.length ? `<div class="pen-review-quotes">${quotes
               .map((q: any, qi: number) => `<a class="pen-qchip" data-ri="${ri}" data-qi="${qi}">“${escapeHtml(trunc(q.text))}”</a>`)
               .join('')}</div>` : ''}
@@ -303,10 +281,5 @@ function escapeHtml(s: string): string {
 const fmtDate = (iso: string): string => { try { return new Date(iso).toLocaleDateString() } catch { return '' } }
 const trunc = (s: string, n = 60): string => (s.length > n ? s.slice(0, n) + '…' : s)
 
-// Push the page aside so a panel docks beside content instead of overlapping it.
-function pushAside() {
-  document.body.classList.add('pen-panel-open')
-}
-function unpushAside() {
-  document.body.classList.remove('pen-panel-open')
-}
+function pushAside() { document.body.classList.add('pen-panel-open') }
+function unpushAside() { document.body.classList.remove('pen-panel-open') }

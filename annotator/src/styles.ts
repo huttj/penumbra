@@ -205,8 +205,22 @@ body.pen-panel-open .center { max-width: none !important; min-width: 0 !importan
 .pen-ref-acts { display: flex; gap: 8px; align-items: center; }
 .pen-ref-acts em { color: var(--pen-unread); font-style: normal; font-size: 11px; }
 .pen-ref-acts a { color: var(--pen-accent); cursor: pointer; }
-.pen-essay { flex: 1; border: none; resize: none; padding: 14px; outline: none;
-  font: 14px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--pen-bg); color: var(--pen-fg); }
+.pen-editor { flex: 1; overflow: auto; }
+.pen-prose { padding: 16px 18px; outline: none; min-height: 100%;
+  font: 15px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; color: var(--pen-fg); }
+.pen-prose:focus { outline: none; }
+.pen-prose p { margin: .5em 0; }
+.pen-prose h1, .pen-prose h2, .pen-prose h3 { line-height: 1.25; margin: .7em 0 .3em; }
+.pen-prose ul, .pen-prose ol { padding-left: 1.4em; margin: .5em 0; }
+.pen-prose a { color: var(--pen-accent); }
+.pen-prose img { max-width: 100%; border-radius: 8px; }
+.pen-prose code { background: var(--pen-chip); padding: 1px 5px; border-radius: 4px; font-size: .9em; }
+.pen-prose pre { background: var(--pen-chip); padding: 10px 12px; border-radius: 8px; overflow: auto; }
+.pen-prose pre code { background: none; padding: 0; }
+.pen-prose blockquote { border-left: 3px solid var(--pen-accent); margin: .6em 0; padding: .2em 0 .2em 12px;
+  color: var(--pen-muted); background: rgba(132,165,157,.10); border-radius: 0 6px 6px 0; transition: background .15s; }
+.pen-prose blockquote p { margin: .15em 0; }
+.pen-prose blockquote.pen-bq-active { background: rgba(132,165,157,.30); }
 .pen-preview { flex: 1; overflow: auto; padding: 14px 16px; }
 .pen-preview h1, .pen-preview h2, .pen-preview h3 { line-height: 1.25; }
 .pen-preview blockquote { border-left: 3px solid var(--pen-accent); margin: .6em 0; padding: .2em 0 .2em 12px; color: var(--pen-muted); }
