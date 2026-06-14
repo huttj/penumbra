@@ -110,7 +110,7 @@ export const CSS = `
 
 .pen-reply { padding: 6px 12px 12px; }
 .pen-reply textarea, .pen-compose textarea {
-  width: 100%; min-height: 54px; resize: vertical; font: inherit;
+  width: 100%; resize: none; overflow-y: hidden; font: inherit; line-height: 1.5;
   background: var(--pen-bg); color: var(--pen-fg);
   border: 1px solid var(--pen-border); border-radius: 7px; padding: 7px;
 }

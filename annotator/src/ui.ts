@@ -240,6 +240,7 @@ export class Penumbra {
           <div class="pen-row"><span class="pen-foot"><a data-act="delete">Delete</a></span>
             <button class="pen-btn" data-act="save">Save</button></div></div>`
       const ta = card.querySelector('textarea') as HTMLTextAreaElement
+      autoGrow(ta)
       setTimeout(() => ta.focus(), 0)
       const save = () => { blk.note = ta.value; this.saveDoc() }
       card.querySelector('[data-act="save"]')!.addEventListener('click', save)
@@ -323,6 +324,7 @@ export class Penumbra {
         <div class="pen-emojibar">${QUICK_EMOJI.map((e) => `<button data-emoji="${e}">${e}</button>`).join('')}</div>
         <button class="pen-btn" data-act="post">Comment</button></div>`
     const ta = box.querySelector('textarea') as HTMLTextAreaElement
+    autoGrow(ta)
     const post = () => { if (ta.value.trim()) this.addBlock(quote, ta.value.trim()) }
     ta.addEventListener('keydown', (e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); post() } })
     box.querySelectorAll('[data-emoji]').forEach((b) =>
@@ -470,3 +472,18 @@ export class Penumbra {
 
 const esc = (s: string): string =>
   String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
+
+// Grow a textarea with its content from one line up to maxRows, then scroll.
+function autoGrow(ta: HTMLTextAreaElement, maxRows = 7) {
+  const fit = () => {
+    ta.style.height = 'auto'
+    const cs = getComputedStyle(ta)
+    const lh = parseFloat(cs.lineHeight) || 20
+    const extra = parseFloat(cs.paddingTop) + parseFloat(cs.paddingBottom) + parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth)
+    const max = lh * maxRows + extra
+    ta.style.height = `${Math.min(ta.scrollHeight, max)}px`
+    ta.style.overflowY = ta.scrollHeight > max ? 'auto' : 'hidden'
+  }
+  ta.addEventListener('input', fit)
+  requestAnimationFrame(fit)
+}
