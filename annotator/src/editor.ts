@@ -212,4 +212,40 @@ export class ResponsePanel {
   }
 }
 
+// A small standalone rich editor for inline margin-card comment editing.
+export function createMiniEditor(mount: HTMLElement, markdown: string, opts: { onChange: (md: string) => void }) {
+  const editor = new Editor({
+    element: mount,
+    extensions: [
+      StarterKit,
+      Link.configure({ openOnClick: false, autolink: true, HTMLAttributes: { target: '_blank', rel: 'noopener' } }),
+      Image.configure({ inline: false }),
+      Markdown.configure({ html: false, linkify: true, breaks: true, transformPastedText: true }),
+    ],
+    content: markdown,
+    editorProps: {
+      attributes: { class: 'pen-prose pen-mini', spellcheck: 'true' },
+      handlePaste: (_v, e) => {
+        const items = (e as ClipboardEvent).clipboardData?.items
+        if (items) {
+          for (const it of items) {
+            if (it.type.startsWith('image/')) {
+              const f = it.getAsFile()
+              if (f) { const r = new FileReader(); r.onload = () => editor.chain().focus().setImage({ src: String(r.result) }).run(); r.readAsDataURL(f); return true }
+            }
+          }
+        }
+        return false
+      },
+    },
+    onUpdate: () => opts.onChange((editor.storage as any).markdown.getMarkdown()),
+  })
+  return {
+    destroy: () => editor.destroy(),
+    getMarkdown: () => (editor.storage as any).markdown.getMarkdown(),
+    focus: () => editor.commands.focus('end'),
+  }
+}
+
 ;(window as any).__PenumbraResponsePanel = ResponsePanel
+;(window as any).__PenumbraMiniEditor = createMiniEditor

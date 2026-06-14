@@ -225,6 +225,12 @@ body.pen-panel-open .center { max-width: none !important; min-width: 0 !importan
   color: var(--pen-muted); background: rgba(132,165,157,.10); border-radius: 0 6px 6px 0; transition: background .15s; }
 .pen-prose blockquote p { margin: .15em 0; }
 .pen-prose blockquote.pen-bq-active { background: rgba(132,165,157,.45); box-shadow: inset 3px 0 0 var(--pen-accent); }
+
+/* rich editor inside a margin card: borderless, compact, aligned with the quote */
+.pen-prose.pen-mini { padding: 2px 11px; font: inherit; line-height: 1.5; min-height: 1.4em; }
+.pen-prose.pen-mini p { margin: 0.2em 0; }
+.pen-prose.pen-mini img { max-height: 120px; width: auto; margin: 4px 0; }
+.pen-cardfoot { padding: 4px 12px 10px; }
 .pen-preview { flex: 1; overflow: auto; padding: 14px 16px; }
 .pen-preview h1, .pen-preview h2, .pen-preview h3 { line-height: 1.25; }
 .pen-preview blockquote { border-left: 3px solid var(--pen-accent); margin: .6em 0; padding: .2em 0 .2em 12px; color: var(--pen-muted); }

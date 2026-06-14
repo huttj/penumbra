@@ -7,19 +7,24 @@ import { ReviewsPanel } from './response'
 // bundle the first time the response panel opens.
 type ResponsePanelLike = { open(): void; close(): void; appendQuote(range: Range): void }
 type ResponsePanelCtor = new (o: { api: Api; root: HTMLElement; source: string; commitSha: string | null; userName: string; onClose: () => void }) => ResponsePanelLike
+type MiniEditor = { destroy(): void; getMarkdown(): string; focus(): void }
+type MiniEditorFactory = (mount: HTMLElement, markdown: string, opts: { onChange: (md: string) => void }) => MiniEditor
 
-async function loadResponsePanel(): Promise<ResponsePanelCtor> {
-  const w = window as any
-  if (w.__PenumbraResponsePanel) return w.__PenumbraResponsePanel
-  await new Promise<void>((resolve, reject) => {
+let editorBundlePromise: Promise<void> | null = null
+function ensureEditorBundle(): Promise<void> {
+  if ((window as any).__PenumbraResponsePanel) return Promise.resolve()
+  if (editorBundlePromise) return editorBundlePromise
+  editorBundlePromise = new Promise<void>((resolve, reject) => {
     const core = document.querySelector('script[src*="penumbra.js"]') as HTMLScriptElement | null
     const url = core ? core.src.replace(/penumbra\.js(\?.*)?$/, 'penumbra-editor.js') : '/static/penumbra-editor.js'
     const s = document.createElement('script')
     s.src = url; s.onload = () => resolve(); s.onerror = () => reject(new Error('editor failed to load'))
     document.head.appendChild(s)
   })
-  return w.__PenumbraResponsePanel
+  return editorBundlePromise
 }
+async function loadResponsePanel(): Promise<ResponsePanelCtor> { await ensureEditorBundle(); return (window as any).__PenumbraResponsePanel }
+async function loadMiniEditor(): Promise<MiniEditorFactory> { await ensureEditorBundle(); return (window as any).__PenumbraMiniEditor }
 import { CSS } from './styles'
 
 type Config = { api: string; source?: string; sourceBase?: string; root?: string; commitSha?: string }
@@ -53,6 +58,7 @@ export class Penumbra {
   private repoQueued = false
   private railLeft = 0
   private quietTimer: any = null
+  private cardEditor?: MiniEditor
 
   private responsePanel?: ResponsePanelLike
   private reviewsPanel?: ReviewsPanel
@@ -169,19 +175,22 @@ export class Penumbra {
     this.renderAll()
   }
 
-  // Save without re-parsing/re-rendering, so an open inline editor isn't destroyed.
+  private async serializeAndSave(): Promise<boolean> {
+    const body = serializeResponse(this.preamble, this.blocks.map((b) => ({ quotes: b.quotes, note: b.note })))
+    const quotes = extractBlockquotes(body).map((text, i) => ({
+      id: `q${i}`, text, selector: locateText(text, this.root) ?? [{ type: 'TextQuoteSelector', exact: text }],
+    }))
+    try { await this.api.saveResponse(this.source, body, quotes, this.commitSha); return true } catch { return false }
+  }
+
+  // Debounced save without re-parsing/re-rendering, so the open inline editor survives.
   private saveQuiet(card?: HTMLElement) {
     const setState = (s: string) => { const el = card?.querySelector('[data-cardsave]'); if (el) el.textContent = s }
     setState('saving…')
     clearTimeout(this.quietTimer)
-    this.quietTimer = setTimeout(async () => {
-      const body = serializeResponse(this.preamble, this.blocks.map((b) => ({ quotes: b.quotes, note: b.note })))
-      const quotes = extractBlockquotes(body).map((text, i) => ({
-        id: `q${i}`, text, selector: locateText(text, this.root) ?? [{ type: 'TextQuoteSelector', exact: text }],
-      }))
-      try { await this.api.saveResponse(this.source, body, quotes, this.commitSha); setState('saved') } catch { setState('save failed') }
-    }, 600)
+    this.quietTimer = setTimeout(async () => setState((await this.serializeAndSave()) ? 'saved' : 'save failed'), 600)
   }
+  private flushQuiet() { clearTimeout(this.quietTimer); void this.serializeAndSave() }
 
   private blockById = (id: string | null) => this.blocks.find((b) => b.id === id)
   private docY = (r: Range): number => r.getBoundingClientRect().top + window.scrollY
@@ -219,6 +228,7 @@ export class Penumbra {
 
   private layoutRightRail() {
     this.railRO?.disconnect()
+    this.destroyCardEditor()
     this.layer.querySelectorAll('.pen-card.rail').forEach((n) => n.remove())
     this.railEntries = []
     if (!this.highlightsOn || this.responsePanel) return
@@ -238,6 +248,30 @@ export class Penumbra {
     this.railRO = new ResizeObserver(() => this.queueReposition())
     this.railEntries.forEach((e) => this.railRO!.observe(e.el))
     this.repositionRail()
+    // Mount the rich editor onto the focused card (lazy-loads the editor bundle).
+    const focusedEntry = this.railEntries.find((e) => e.blk.id === this.focused)
+    if (focusedEntry) this.mountCardEditor(focusedEntry.el, focusedEntry.blk)
+  }
+
+  private async mountCardEditor(el: HTMLElement, blk: Block) {
+    const mount = el.querySelector<HTMLElement>('[data-note-editor]')
+    if (!mount) return
+    let factory: MiniEditorFactory
+    try { factory = await loadMiniEditor() } catch { return }
+    if (this.focused !== blk.id || !mount.isConnected) return // focus moved while loading
+    this.destroyCardEditor()
+    mount.textContent = '' // clear the rendered placeholder before mounting the editor
+    this.cardEditor = factory(mount, blk.note, {
+      onChange: (md) => { blk.note = md; this.queueReposition(); this.saveQuiet(el) },
+    })
+    this.cardEditor.focus()
+  }
+
+  private destroyCardEditor() {
+    if (!this.cardEditor) return
+    this.flushQuiet()
+    this.cardEditor.destroy()
+    this.cardEditor = undefined
   }
 
   private queueReposition() {
@@ -298,18 +332,11 @@ export class Penumbra {
       card.innerHTML = `${quoteHtml}<div class="pen-thread">${noteHtml}</div>`
       card.addEventListener('click', () => this.focus(blk.id))
     } else {
+      // Rich-text editor is mounted (lazy) onto this placeholder in layoutRightRail.
       card.innerHTML = `${quoteHtml}
-        <div class="pen-reply"><textarea class="pen-note">${esc(blk.note)}</textarea>
-          <div class="pen-row"><span class="pen-foot"><a data-act="delete">Delete</a></span>
-            <span class="pen-savestate" data-cardsave></span></div></div>`
-      const ta = card.querySelector('textarea') as HTMLTextAreaElement
-      autoGrow(ta)
-      setTimeout(() => ta.focus(), 0)
-      // Autosave — clicking out must not lose changes. Updates the block in place
-      // and saves quietly (no rebuild that would destroy the open editor).
-      const onEdit = () => { blk.note = ta.value; this.queueReposition(); this.saveQuiet(card) }
-      ta.addEventListener('input', onEdit)
-      ta.addEventListener('blur', onEdit)
+        <div class="pen-note-editor" data-note-editor><div class="pen-body pen-md">${renderMarkdown(blk.note)}</div></div>
+        <div class="pen-row pen-cardfoot"><span class="pen-foot"><a data-act="delete">Delete</a></span>
+          <span class="pen-savestate" data-cardsave></span></div>`
       card.querySelector('[data-act="delete"]')!.addEventListener('click', () => {
         if (!confirm('Delete this comment?')) return
         this.blocks = this.blocks.filter((b) => b.id !== blk.id); this.saveDoc()
@@ -481,6 +508,7 @@ export class Penumbra {
     this.toolbar?.querySelector('[data-act="response"]')?.classList.add('active')
     try { RP = await loadResponsePanel() } catch { this.toolbar?.querySelector('[data-act="response"]')?.classList.remove('active'); alert('Could not load the editor.'); return }
     if (this.responsePanel) return // a double-click already opened it while loading
+    this.destroyCardEditor()
     this.layer.querySelectorAll('.pen-card.rail, .pen-emote').forEach((n) => n.remove())
     this.responsePanel = new RP({
       api: this.api, root: this.root, source: this.source, commitSha: this.commitSha, userName: this.user.name ?? 'you',
