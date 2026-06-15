@@ -189,6 +189,7 @@ export class ResponsePanel {
   private lastMd = ''
   private activeQuote = -1
   private srcText = ''
+  private peek = false
 
   constructor(o: Opts) {
     this.api = o.api; this.root = o.root; this.source = o.source
@@ -200,10 +201,35 @@ export class ResponsePanel {
   // the editor scroll area sits above the on-screen keyboard instead of behind it.
   private onViewport = () => {
     const vv = window.visualViewport
-    if (!vv || !this.el) return
+    if (!vv || !this.el || this.peek) return // peek pins itself to the bottom via CSS
     this.el.style.top = `${vv.offsetTop}px`
     this.el.style.height = `${vv.height}px`
     this.el.style.bottom = 'auto'
+  }
+
+  // Peek: collapse the full-screen editor to a bottom bar so the reader can select
+  // text in the page behind it. The page's "Quote" button then appends to the
+  // response (via appendQuote) without leaving the panel. Mobile-only affordance.
+  private enterPeek() {
+    this.peek = true
+    this.el.classList.add('pen-peek')
+    this.el.style.top = ''; this.el.style.height = ''; this.el.style.bottom = '' // let CSS dock it
+    ;(this.el.querySelector('[data-peekbar]') as HTMLElement).hidden = false
+    this.editor.commands.blur() // drop the keyboard so the page is fully visible
+  }
+  private exitPeek() {
+    this.peek = false
+    this.el.classList.remove('pen-peek')
+    ;(this.el.querySelector('[data-peekbar]') as HTMLElement).hidden = true
+    this.onViewport() // restore the full-screen height
+    window.getSelection()?.removeAllRanges()
+    if (!this.editor.isDestroyed) this.editor.commands.focus('end')
+  }
+  private flashPeek(msg: string) {
+    const el = this.el?.querySelector('[data-peekmsg]') as HTMLElement | null
+    if (!el) return
+    el.textContent = msg
+    setTimeout(() => { if (this.peek) el.textContent = 'Select text in the page to quote it.' }, 1400)
   }
 
   async open() {
@@ -234,7 +260,12 @@ export class ResponsePanel {
         <strong>Your response</strong>
         <span class="pen-savestate" data-save></span>
         <span style="flex:1"></span>
+        <button class="pen-tbtn pen-quotebtn" data-act="quote" title="Quote text from the page">❝ Quote</button>
         <button class="pen-tbtn" data-act="close" title="Hide">⇥</button>
+      </div>
+      <div class="pen-peekbar" data-peekbar hidden>
+        <span data-peekmsg>Select text in the page to quote it.</span>
+        <button class="pen-btn" data-act="peekdone">Done</button>
       </div>
       <div class="pen-editor" data-editor></div>`
     document.body.appendChild(el)
@@ -291,6 +322,8 @@ export class ResponsePanel {
     })
     mount.addEventListener('mouseleave', () => this.amplifyAtCursor())
     el.querySelector('[data-act="close"]')!.addEventListener('click', () => this.close())
+    el.querySelector('[data-act="quote"]')!.addEventListener('click', () => (this.peek ? this.exitPeek() : this.enterPeek()))
+    el.querySelector('[data-act="peekdone"]')!.addEventListener('click', () => this.exitPeek())
     document.addEventListener('mousemove', this.onSourceHover, { passive: true })
     document.addEventListener('click', this.onSourceClick)
     setTimeout(() => { if (!this.editor.isDestroyed) this.editor.commands.focus('end') }, 0)
@@ -356,13 +389,17 @@ export class ResponsePanel {
     const last = doc.lastChild
     const lastEmpty = !!last && last.type.name === 'paragraph' && last.content.size === 0
     const blockquote = { type: 'blockquote', attrs: { nth }, content: [{ type: 'paragraph', content: [{ type: 'text', text: exact }] }] }
+    const chain = this.editor.chain()
     if (lastEmpty) {
       // reuse the existing trailing blank line; the cursor lands on it, after the quote
-      this.editor.chain().insertContentAt(doc.content.size - last!.nodeSize, blockquote).focus('end').run()
+      chain.insertContentAt(doc.content.size - last!.nodeSize, blockquote)
     } else {
       // add the quote plus one fresh blank line; cursor on the new line
-      this.editor.chain().insertContentAt(doc.content.size, [blockquote, { type: 'paragraph' }]).focus('end').run()
+      chain.insertContentAt(doc.content.size, [blockquote, { type: 'paragraph' }])
     }
+    // While peeking, don't steal focus (that would pop the keyboard and cover the
+    // page mid-harvest) — just confirm so the reader can keep selecting more.
+    if (this.peek) { chain.run(); this.flashPeek('Quote added ✓') } else chain.focus('end').run()
   }
 
   private handleImagePaste(e: ClipboardEvent): boolean {

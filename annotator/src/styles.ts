@@ -385,4 +385,21 @@ body.pen-panel-open .center { max-width: none !important; min-width: 0 !importan
   }
   .pen-panel .pen-prose { padding: 14px 14px calc(14px + env(safe-area-inset-bottom, 0px)); }
 }
+/* the "❝ Quote" harvest button only makes sense on mobile (desktop selects in the
+   left half directly); peek = collapse the editor to a bottom bar to free the page */
+.pen-quotebtn { display: none; }
+@media (max-width: 720px) { .pen-quotebtn { display: flex; } }
+.pen-peekbar {
+  display: flex; align-items: center; gap: 10px; justify-content: space-between;
+  padding: 9px 14px calc(9px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--pen-border); font-size: 13px; color: var(--pen-muted);
+}
+.pen-peekbar[hidden] { display: none; }
+.pen-peekbar .pen-btn { flex-shrink: 0; padding: 5px 14px; }
+.pen-panel.pen-peek {
+  top: auto; bottom: 0; height: auto; max-height: none;
+  border-radius: 14px 14px 0 0; border-top: 1px solid var(--pen-border);
+  box-shadow: 0 -6px 30px rgba(0,0,0,.32);
+}
+.pen-panel.pen-peek .pen-editor { display: none; }
 `
