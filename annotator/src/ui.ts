@@ -583,6 +583,8 @@ export class Penumbra {
     if (!this.root.contains(range.commonAncestorContainer)) return
     // Panel open → a "Quote" button that appends to the full response.
     if (this.responsePanel) { this.showQuoteButton(range.cloneRange()); return }
+    // Highlights off = read-only mode: a selection shouldn't pop the compose panel.
+    if (!this.highlightsOn) return
     this.openCompose(range.cloneRange())
   }
 
