@@ -90,6 +90,7 @@ export class Penumbra {
   private composeNew = false
   private composeRoot?: HTMLElement
   private selTimer: any = null
+  private feedbackId: string | null = null
 
   private responsePanel?: ResponsePanelLike
   private reviewsPanel?: ReviewsPanel
@@ -105,6 +106,7 @@ export class Penumbra {
   constructor(cfg: Config) {
     this.cfg = cfg
     this.api = new Api(cfg.api)
+    this.feedbackId = this.computeFeedbackId()
     this.root = this.resolveRoot()
     this.source = this.computeSource()
     this.commitSha = cfg.commitSha ?? null
@@ -113,7 +115,14 @@ export class Penumbra {
   private resolveRoot(): HTMLElement {
     return (this.cfg.root ? document.querySelector<HTMLElement>(this.cfg.root) : null) ?? document.body
   }
+  // The /feedback shell page carries the response id in ?id=; on a feedback page
+  // the annotator renders that doc and keys everything to its canonical URL.
+  private computeFeedbackId(): string | null {
+    if (!/\/feedback\/?$/.test(location.pathname)) return null
+    return new URLSearchParams(location.search).get('id')
+  }
   private computeSource(): string {
+    if (this.feedbackId && this.cfg.sourceBase) return `${this.cfg.sourceBase.replace(/\/$/, '')}/feedback?id=${this.feedbackId}`
     if (this.cfg.source) return this.cfg.source
     if (this.cfg.sourceBase) {
       const path = location.pathname.replace(/\/index\.html?$/i, '/').replace(/\.html?$/i, '').replace(/\/$/, '')
@@ -175,6 +184,7 @@ export class Penumbra {
     if (!this.layer.isConnected) document.body.appendChild(this.layer)
     if (!this.toolbar?.isConnected) this.renderToolbar()
     if (!this.loginEl?.isConnected) this.renderLogin()
+    this.feedbackId = this.computeFeedbackId()
     this.root = this.resolveRoot()
     this.source = this.computeSource()
     await this.loadDoc()
@@ -183,10 +193,29 @@ export class Penumbra {
   // ---- data: the response doc → blocks -------------------------------------
 
   private async loadDoc() {
+    // On a /feedback page, first render the feedback doc INTO the article; the
+    // margins below then load the viewer's own notes on that feedback (its source).
+    if (this.feedbackId) await this.renderFeedbackPage()
     let body = ''
     if (this.user) body = (await this.api.getResponse(this.source).catch(() => null))?.body ?? ''
     this.parse(body)
     this.renderAll()
+  }
+
+  // Render a reader's feedback doc as the page body (the keystone of feedback
+  // pages). The viewer must be the doc's owner or the author; otherwise it's private.
+  private async renderFeedbackPage() {
+    const root = this.root
+    if (!this.user) { root.innerHTML = '<p class="pen-fb-note">Sign in to view this feedback.</p>'; return }
+    const fb = await this.api.getResponseById(this.feedbackId!).catch(() => null)
+    if (!fb) { root.innerHTML = '<p class="pen-fb-note">This feedback is private, or it doesn’t exist.</p>'; return }
+    const who = esc(fb.creator?.name ?? 'a reader')
+    const onPage = esc(sourceLabel(fb.source))
+    const link = esc(fb.source)
+    document.title = `Feedback from ${fb.creator?.name ?? 'a reader'}`
+    root.innerHTML =
+      `<header class="pen-fb-head">Feedback from <b>${who}</b> on <a href="${link}">${onPage}</a></header>` +
+      renderMarkdown(fb.body || '_(empty)_')
   }
 
   private parse(body: string) {
@@ -894,3 +923,11 @@ export class Penumbra {
 
 const esc = (s: string): string =>
   String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
+
+// A readable label for a source URL: its last path segment, de-slugified.
+const sourceLabel = (src: string): string => {
+  try {
+    const seg = new URL(src).pathname.replace(/\/$/, '').split('/').pop() ?? ''
+    return decodeURIComponent(seg).replace(/[-_]/g, ' ').trim() || 'the page'
+  } catch { return 'the page' }
+}

@@ -402,4 +402,15 @@ body.pen-panel-open .center { max-width: none !important; min-width: 0 !importan
   box-shadow: 0 -6px 30px rgba(0,0,0,.32);
 }
 .pen-panel.pen-peek .pen-editor { display: none; }
+
+/* ---- feedback pages (a reader's response rendered as its own page) ---- */
+.pen-fb-head {
+  font-size: 14px; color: var(--pen-muted); margin: 0 0 1.2em;
+  padding-bottom: .7em; border-bottom: 1px solid var(--pen-border);
+}
+.pen-fb-head a { color: var(--pen-accent); }
+.pen-fb-note { color: var(--pen-muted); }
+/* the /feedback shell page is a runtime host, not real content — hide its
+   stray entry from the Quartz explorer + any link lists */
+.explorer a[href$="/feedback"], .explorer a[data-for="feedback"] { display: none !important; }
 `

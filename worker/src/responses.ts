@@ -37,6 +37,24 @@ responses.get('/', async (c) => {
   return c.json({ response: row ? rowToResponse(row) : null })
 })
 
+// A single response doc by id, for rendering it as its own "feedback page".
+// Private: only the doc's owner or the page author may read it.
+responses.get('/by-id/:uuid', async (c) => {
+  const user = await currentUser(c)
+  if (!user) return c.json({ error: 'sign in' }, 401)
+  const id = `${apiBase(c)}/responses/${c.req.param('uuid')}`
+  const row = await c.env.DB.prepare(
+    `SELECT r.*, u.name AS creator_name, u.avatar AS creator_avatar
+       FROM responses r LEFT JOIN users u ON u.id = r.creator_id
+      WHERE r.id = ?`
+  )
+    .bind(id)
+    .first<any>()
+  if (!row) return c.json({ error: 'not found' }, 404)
+  if (row.creator_id !== user.id && !isAuthor(c.env, user.id)) return c.json({ error: 'forbidden' }, 403)
+  return c.json({ response: rowToResponse(row) })
+})
+
 // Author-only: every reader's response doc for a page (the reviews workspace).
 responses.get('/all', async (c) => {
   const user = await currentUser(c)

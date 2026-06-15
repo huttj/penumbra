@@ -106,6 +106,13 @@ export class Api {
     return r.json()
   }
 
+  // A single response doc by its uuid — for rendering a "feedback page".
+  async getResponseById(uuid: string): Promise<any | null> {
+    const r = await fetch(`${this.base}/responses/by-id/${encodeURIComponent(uuid)}`, { headers: this.headers() })
+    if (!r.ok) return null
+    return (await r.json()).response
+  }
+
   async getAllResponses(source: string): Promise<any[]> {
     const r = await fetch(`${this.base}/responses/all?source=${encodeURIComponent(source)}`, { headers: this.headers() })
     if (!r.ok) return []
