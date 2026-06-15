@@ -34,9 +34,17 @@ jobs:
       - name: Build annotator
         run: cd annotator && npm install --no-audit --no-fund && npm run build
 
-      # Build the static site (Quartz) into site/public
+      # Build the static site (Quartz) into site/public. The Quartz plugins are
+      # git-installed packages tracked only in quartz.lock.json (the .quartz/
+      # plugins dir is gitignored), so they must be installed from the lockfile
+      # before the build — otherwise the bootstrap transpile can't resolve the
+      # generated .quartz/plugins barrel (CustomOgImagesEmitterName).
       - name: Build site
-        run: cd site && npm install --no-audit --no-fund && npx quartz build
+        run: |
+          cd site
+          npm install --no-audit --no-fund
+          npx quartz plugin install
+          npx quartz build
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
