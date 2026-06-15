@@ -1,12 +1,12 @@
 ---
 penumbra: response
 source: https://penumbra.page/welcome
-sourceSha: 3a9caeb6130e2d0095c8159978d7aa40a426d165
+sourceSha: f2925ad4b05af17264ee688b5fb586f8095683c1
 reviewer: test
 reviewerId: email:test@test.com
 created: 2026-06-15T05:29:09.849Z
-updated: 2026-06-15T06:00:56.895Z
+updated: 2026-06-15T08:30:56.919Z
 ---
-> causing the “big crunch” in modern society? Where are the leverage points? How can we make like enjoyable and free again?
+> an interview angle
 
-🤔 qsad
+lol it’s great
