@@ -1,3 +1,7 @@
+---
+aliases:
+  - index
+---
 This is my research vault. I have three areas of interest:
 
 1. What's causing the "big crunch" in modern society? Where are the leverage points? How can we make like enjoyable and free again?
