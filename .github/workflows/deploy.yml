@@ -1,0 +1,46 @@
+name: Deploy site
+
+# Rebuild + publish the site whenever content/site/annotator change on main
+# (so an Obsidian Git push republishes). Feedback commits under feedback/** are
+# deliberately excluded — they're pulled into the vault, not published.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'vault/**'
+      - 'site/**'
+      - 'annotator/**'
+      - '.github/workflows/deploy.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  group: pages-deploy
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Regenerate the annotator bundles → copied into site/quartz/static
+      - name: Build annotator
+        run: cd annotator && npm install --no-audit --no-fund && npm run build
+
+      # Build the static site (Quartz) into site/public
+      - name: Build site
+        run: cd site && npm install --no-audit --no-fund && npx quartz build
+
+      - name: Deploy to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: '183aa6473d53e6c3f29cfa852ebfb58a'
+          command: pages deploy site/public --project-name=penumbra --branch=main --commit-dirty=true
