@@ -4,7 +4,6 @@ dist/
 .dev.vars
 *.local
 .DS_Store
-vault/Research/.obsidian/workspace.json
 /.obsidian/workspace.json
 /.obsidian/workspace-mobile.json
 /.obsidian/cache
