@@ -374,4 +374,15 @@ body.pen-panel-open .center { max-width: none !important; min-width: 0 !importan
 .pen-sheet-foot .pen-emojibar button { font-size: 21px; padding: 6px 10px; }
 .pen-sheet-foot .pen-emojigrid button { font-size: 23px; padding: 5px 6px; }
 .pen-sheet-foot .pen-emojigrid { max-height: 26vh; }
+
+/* the response / reviews panel goes full-screen on a phone (no room for the
+   side-by-side source view); JS keeps its height pinned to the visual viewport
+   so the editor stays above the on-screen keyboard. */
+@media (max-width: 720px) {
+  .pen-panel { width: 100vw; max-width: 100vw; border-left: none; }
+  body.pen-panel-open #quartz-body {
+    width: 100% !important; max-width: 100% !important; padding: 1rem !important;
+  }
+  .pen-panel .pen-prose { padding: 14px 14px calc(14px + env(safe-area-inset-bottom, 0px)); }
+}
 `

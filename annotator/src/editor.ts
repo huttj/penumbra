@@ -195,6 +195,17 @@ export class ResponsePanel {
     this.commitSha = o.commitSha; this.onClose = o.onClose
   }
 
+  private isMobile = () => window.innerWidth <= 720
+  // On a phone the panel is full-screen; pin its height to the visual viewport so
+  // the editor scroll area sits above the on-screen keyboard instead of behind it.
+  private onViewport = () => {
+    const vv = window.visualViewport
+    if (!vv || !this.el) return
+    this.el.style.top = `${vv.offsetTop}px`
+    this.el.style.height = `${vv.height}px`
+    this.el.style.bottom = 'auto'
+  }
+
   async open() {
     this.body = (await this.api.getResponse(this.source).catch(() => null))?.body ?? ''
     this.build()
@@ -204,6 +215,8 @@ export class ResponsePanel {
   close() {
     document.removeEventListener('mousemove', this.onSourceHover)
     document.removeEventListener('click', this.onSourceClick)
+    window.visualViewport?.removeEventListener('resize', this.onViewport)
+    window.visualViewport?.removeEventListener('scroll', this.onViewport)
     this.flushSave()
     if (HL) { const h = (window as any).CSS.highlights; h.delete('penumbra-quote'); h.delete('penumbra-quote-active') }
     this.editor?.destroy()
@@ -227,6 +240,11 @@ export class ResponsePanel {
     document.body.appendChild(el)
     this.el = el
     document.body.classList.add('pen-panel-open')
+    if (this.isMobile()) {
+      this.onViewport()
+      window.visualViewport?.addEventListener('resize', this.onViewport)
+      window.visualViewport?.addEventListener('scroll', this.onViewport)
+    }
 
     this.editor = new Editor({
       element: el.querySelector('[data-editor]') as HTMLElement,
