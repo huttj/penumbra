@@ -63,7 +63,7 @@ export const CSS = `
   position: absolute; width: 290px; z-index: 2147483645;
   background: var(--pen-bg); border: 1px solid var(--pen-border);
   border-radius: 11px; box-shadow: var(--pen-shadow);
-  transition: box-shadow .18s ease; overflow: hidden;
+  transition: box-shadow .18s ease; overflow: visible; /* let reactions hang off the edge */
 }
 .pen-card.compact { cursor: pointer; }
 .pen-card.compact:hover { border-color: var(--pen-accent); }
@@ -140,8 +140,9 @@ export const CSS = `
 .pen-emojibar button { font-size: 16px; background: var(--pen-chip); border: 1px solid var(--pen-border);
   border-radius: 8px; padding: 2px 6px; cursor: pointer; line-height: 1.25; }
 .pen-emojibar button:hover { background: var(--pen-chip-hover); transform: scale(1.08); }
+/* selected = filled (amber tint: darker on light, lighter on dark) + thin border */
 .pen-emojibar button.selected, .pen-emojigrid button.selected {
-  background: var(--pen-chip-hover); box-shadow: 0 0 0 2px var(--pen-accent) inset; }
+  background: rgba(185,119,10,.22); border-color: var(--pen-accent); box-shadow: none; }
 .pen-composebar .pen-btn { flex-shrink: 0; }
 
 .pen-addbtn {
@@ -151,14 +152,22 @@ export const CSS = `
   white-space: nowrap;
 }
 
-/* ---- emoji reactions (left margin): bare glyphs stuck beside the quote ---- */
+/* ---- emoji reactions (left margin): a horizontal cluster that spreads LEFT ---- */
+/* translateX(-100%) pins the right edge at the JS-set left coord, so the cluster
+   grows leftward and the rightmost (= first) emoji stays put. */
 .pen-emote-stack {
   position: absolute; z-index: 2147483644; cursor: pointer;
-  display: flex; flex-direction: column; gap: 1px; align-items: center;
-  transition: transform .12s ease; transform-origin: center top;
+  display: flex; flex-direction: row; align-items: center; transform: translateX(-100%);
 }
-.pen-emote { font-size: 16px; line-height: 1.15; white-space: nowrap; }
-.pen-emote-stack.pen-emph { transform: scale(1.18); }
+.pen-emote {
+  font-size: 16px; line-height: 1; white-space: nowrap; margin-left: -9px;
+  filter: drop-shadow(0 1px 1px rgba(0,0,0,.18));
+  transition: margin-left .12s ease;
+}
+.pen-emote:first-child { margin-left: 0; }
+/* hover (or emphasised): the overlapping glyphs fan out side-by-side. The right
+   edge is pinned, so they spread leftward; a single emoji has nothing to spread. */
+.pen-emote-stack:hover .pen-emote, .pen-emote-stack.pen-emph .pen-emote { margin-left: 3px; }
 .pen-tooltip {
   position: absolute; z-index: 2147483647; background: var(--pen-fg); color: var(--pen-bg);
   font-size: 12px; padding: 4px 8px; border-radius: 6px; box-shadow: var(--pen-shadow);
@@ -177,8 +186,9 @@ export const CSS = `
   border-radius: 7px; padding: 6px 8px; font: inherit; width: 150px; }
 
 /* quote highlights driven by the response editor */
-::highlight(penumbra-quote) { background-color: rgba(132, 165, 157, 0.34); }
-::highlight(penumbra-quote-active) { background-color: rgba(132, 165, 157, 0.72); }
+/* amber/yellow to match a "found" quote's colour in the editor */
+::highlight(penumbra-quote) { background-color: rgba(255, 196, 64, 0.34); }
+::highlight(penumbra-quote-active) { background-color: rgba(255, 178, 43, 0.62); }
 
 /* when a panel is docked: collapse Quartz's sidebars, constrain the doc to the
    left half with comfortable margins, and let the panel own the right half */
@@ -223,24 +233,63 @@ body.pen-panel-open .center { max-width: none !important; min-width: 0 !importan
 .pen-prose h1, .pen-prose h2, .pen-prose h3 { line-height: 1.25; margin: .7em 0 .3em; }
 .pen-prose ul, .pen-prose ol { padding-left: 1.4em; margin: .5em 0; }
 .pen-prose a { color: var(--pen-accent); }
-.pen-prose img { display: block; max-width: 100%; border-radius: 8px; margin: 8px 0; }
+/* editor images: natural size, capped to the editor width and 25vh tall */
+.pen-prose img { display: block; width: auto; height: auto; max-width: 100%; max-height: 25vh; border-radius: 8px; margin: 8px 0; }
 .pen-prose code { background: var(--pen-chip); padding: 1px 5px; border-radius: 4px; font-size: .9em; }
 .pen-prose pre { background: var(--pen-chip); padding: 10px 12px; border-radius: 8px; overflow: auto; }
 .pen-prose pre code { background: none; padding: 0; }
+/* a quote FOUND in the source = burnt amber; NOT found = cool teal (won't anchor) */
 .pen-prose blockquote { border-left: 3px solid var(--pen-accent); margin: .6em 0; padding: .2em 0 .2em 12px;
-  color: var(--pen-muted); background: rgba(132,165,157,.10); border-radius: 0 6px 6px 0; transition: background .15s; }
+  color: var(--pen-muted); background: rgba(185,119,10,.09); border-radius: 0 5px 5px 0;
+  transition: background .12s ease, box-shadow .12s ease, border-color .12s ease; }
 .pen-prose blockquote p { margin: .15em 0; }
-.pen-prose blockquote.pen-bq-active { background: rgba(132,165,157,.45); box-shadow: inset 3px 0 0 var(--pen-accent); }
+.pen-prose blockquote.pen-bq-active { background: rgba(185,119,10,.20);
+  box-shadow: inset 4px 0 0 var(--pen-accent), 0 0 0 2px rgba(185,119,10,.42); }
+/* quote that won't anchor (text not in source, OR too short) → cool teal, no picker */
+.pen-prose blockquote.pen-bq-orphan { border-left-color: #4f8f80; background: rgba(79,143,128,.13); }
+.pen-prose blockquote.pen-bq-orphan.pen-bq-active { background: rgba(79,143,128,.28);
+  box-shadow: inset 4px 0 0 #4f8f80, 0 0 0 2px rgba(79,143,128,.42); }
+/* gapcursor: a visible blinking caret in the gap before/after a block image */
+.ProseMirror-gapcursor { display: none; pointer-events: none; position: absolute; margin: 0; }
+.ProseMirror-gapcursor::after { content: ""; display: block; position: absolute; top: -2px; width: 18px;
+  border-top: 2px solid var(--pen-fg); animation: pen-gapcursor 1.1s steps(2, start) infinite; }
+@keyframes pen-gapcursor { to { visibility: hidden; } }
+.ProseMirror-focused .ProseMirror-gapcursor { display: block; }
+/* occurrence picker: tiny "N of M ‹ ›" badge above a quote whose text repeats */
+.pen-occ { display: inline-flex; align-items: center; vertical-align: middle; gap: 1px;
+  font-size: 10px; line-height: 1; color: var(--pen-muted); user-select: none; margin: 1px 0 4px;
+  background: var(--pen-chip); border: 1px solid var(--pen-border); border-radius: 7px; padding: 1px 3px; }
+.pen-occ-a { border: none; background: none; cursor: pointer; color: var(--pen-muted);
+  font: inherit; font-size: 13px; line-height: 1; padding: 0 3px; }
+.pen-occ-a:hover { color: var(--pen-accent); }
+.pen-occ-n { font-variant-numeric: tabular-nums; padding: 0 2px; white-space: nowrap; }
 
 /* rich editor inside a margin card: borderless, compact, aligned with the quote.
    font-size matches .pen-md so rendered vs editing text are the same size. */
-.pen-prose.pen-mini { padding: 2px 11px; font-size: 14px; line-height: 1.55; min-height: 1.4em; }
-.pen-prose.pen-mini p { margin: 0.2em 0; }
-.pen-prose.pen-mini img { max-height: 120px; width: auto; margin: 4px 0; }
-.pen-cardfoot { padding: 0 12px 4px; min-height: 0; }
+/* match the compact .pen-thread/.pen-md geometry (12px inset) so text doesn't shift on focus */
+.pen-prose.pen-mini { padding: 2px 12px; font-size: 14px; line-height: 1.55; min-height: 1.4em; }
+.pen-prose.pen-mini p { margin: 0.15em 0; }
+.pen-prose.pen-mini img { margin: 4px 0; }
+/* the save state floats in the card's bottom-right corner (out of flow, dimmed) so
+   "saving…"/"saved" never changes the card's height. */
+.pen-card.focused { padding-bottom: 6px; }
+.pen-card .pen-savestate { position: absolute; right: 11px; bottom: 1px; pointer-events: none;
+  font-size: 11px; color: var(--pen-fg); opacity: .35; }
+.pen-card.focused .pen-note-editor .pen-prose.pen-mini > :first-child { margin-top: 0; }
 .pen-card.focused .pen-note-editor .pen-prose.pen-mini > :last-child { margin-bottom: 0; }
-/* the reaction picker shown under a focused card's editor */
-.pen-emojislot { padding: 4px 10px 2px; }
+/* tiny reactions hanging off the bottom edge of a (compact) comment card */
+.pen-card-emoji { position: absolute; left: 12px; bottom: -8px; display: flex; gap: 3px;
+  font-size: 13px; line-height: 1; filter: drop-shadow(0 1px 1px rgba(0,0,0,.2)); }
+/* the reaction picker floats just below the focused card (outside it) */
+.pen-cardemoji { position: absolute; z-index: 2147483645; }
+.pen-cardemoji .pen-emojibar { gap: 5px; overflow: visible; } /* don't clip button shadows */
+.pen-cardemoji .pen-emojimore { background: var(--pen-bg); border: 1px solid var(--pen-border);
+  border-radius: 11px; box-shadow: var(--pen-shadow); padding: 8px; margin-top: 6px; max-width: 290px; }
+.pen-cardemoji .pen-emojibar button { font-size: 17px; padding: 5px 7px; line-height: 1;
+  background: var(--pen-bg); border: 1px solid var(--pen-border); border-radius: 9px; box-shadow: var(--pen-shadow); }
+.pen-cardemoji .pen-emojibar button:hover { background: var(--pen-chip-hover); transform: none; }
+.pen-cardemoji .pen-emojibar button.selected { background: rgba(185,119,10,.22);
+  border-color: var(--pen-accent); box-shadow: var(--pen-shadow); }
 
 /* trash sits OUTSIDE the focused card (left gutter); click reveals stacked ✓/✗ */
 .pen-card.focused { overflow: visible; }

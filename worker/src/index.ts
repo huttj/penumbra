@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { auth } from './auth'
-import { responses } from './responses'
+import { responses, flushResponses } from './responses'
 import { authorEmails, sendEmail } from './email'
 import { apiBase, currentUser, isAuthor, normalizeSource, now, uuid, type Env } from './lib'
 
@@ -238,4 +238,10 @@ app.delete('/annotations/:id{.+}', async (c) => {
   return c.json({ ok: true })
 })
 
-export default app
+// Cron entrypoint: periodically commit changed response docs into the repo.
+export default {
+  fetch: app.fetch,
+  async scheduled(_event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(flushResponses(env).then((r) => console.log('[penumbra] flush', JSON.stringify(r))))
+  },
+}

@@ -1,14 +1,14 @@
 import { Api, type User } from './api'
-import { locateText, resolveQuoteStrict, selectorsFromRange } from './anchor'
-import { extractBlockquotes, parseResponse, renderMarkdown, serializeResponse, splitLeadingEmojis } from './markdown'
+import { locateText, occurrenceOf, resolveNthQuote, selectorsFromRange } from './anchor'
+import { extractBlockquotes, hasCommentText, parseResponse, renderMarkdown, serializeResponse, splitLeadingEmojis } from './markdown'
 import { ReviewsPanel } from './response'
 
 // The rich-text editor (TipTap, ~600KB) is loaded on demand from a separate
 // bundle the first time the response panel opens.
 type ResponsePanelLike = { open(): void; close(): void; appendQuote(range: Range): void }
 type ResponsePanelCtor = new (o: { api: Api; root: HTMLElement; source: string; commitSha: string | null; userName: string; onClose: () => void }) => ResponsePanelLike
-type MiniEditor = { destroy(): void; getMarkdown(): string; focus(): void }
-type MiniEditorFactory = (mount: HTMLElement, markdown: string, opts: { onChange: (md: string) => void; uploadImage?: (f: File) => Promise<string> }) => MiniEditor
+type MiniEditor = { destroy(): void; getMarkdown(): string; focus(): void; refocus(): void }
+type MiniEditorFactory = (mount: HTMLElement, markdown: string, opts: { onChange: (md: string) => void; uploadImage?: (f: File) => Promise<string>; onSubmit?: () => void }) => MiniEditor
 
 let editorBundlePromise: Promise<void> | null = null
 function ensureEditorBundle(): Promise<void> {
@@ -16,7 +16,10 @@ function ensureEditorBundle(): Promise<void> {
   if (editorBundlePromise) return editorBundlePromise
   editorBundlePromise = new Promise<void>((resolve, reject) => {
     const core = document.querySelector('script[src*="penumbra.js"]') as HTMLScriptElement | null
-    const url = core ? core.src.replace(/penumbra\.js(\?.*)?$/, 'penumbra-editor.js') : '/static/penumbra-editor.js'
+    let url = core ? core.src.replace(/penumbra\.js(\?.*)?$/, 'penumbra-editor.js') : '/static/penumbra-editor.js'
+    // Dev only: bust the browser cache so iterating on the lazy editor bundle takes
+    // effect on a normal reload (the dev server sends no Cache-Control).
+    if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') url += `?t=${Date.now()}`
     const s = document.createElement('script')
     s.src = url; s.onload = () => resolve(); s.onerror = () => reject(new Error('editor failed to load'))
     document.head.appendChild(s)
@@ -33,7 +36,7 @@ type Config = { api: string; source?: string; sourceBase?: string; root?: string
 // LEADING emoji(s) are reactions (stacked left-rail chips); the remaining text is
 // the comment (right card). One block can have both. Single source of truth for
 // the page margins and the response panel.
-type Block = { id: string; quotes: string[]; note: string; ranges: Range[]; emojis: string[]; text: string }
+type Block = { id: string; quotes: string[]; nths: number[]; note: string; ranges: Range[]; emojis: string[]; text: string }
 
 const HL = typeof (globalThis as any).Highlight !== 'undefined' && !!(window as any).CSS?.highlights
 const GAP = 10
@@ -81,6 +84,7 @@ export class Penumbra {
   private railLeft = 0
   private quietTimer: any = null
   private cardEditor?: MiniEditor
+  private cardEmojiRow?: HTMLElement
   private composeEditor?: MiniEditor
   private composeBlock?: Block
   private composeNew = false
@@ -182,11 +186,12 @@ export class Penumbra {
       return {
         id: `b${i}`,
         quotes: b.quotes,
+        nths: b.nths,
         note: b.note,
         emojis,
         text,
         ranges: b.quotes
-          .map((q) => resolveQuoteStrict([{ type: 'TextQuoteSelector', exact: q }], this.root))
+          .map((q, k) => resolveNthQuote(q, b.nths[k] ?? 1, this.root))
           .filter(Boolean) as Range[],
       }
     })
@@ -194,7 +199,7 @@ export class Penumbra {
 
   // Serialize blocks back to markdown and persist; then re-parse + re-render.
   private async saveDoc() {
-    const body = serializeResponse(this.preamble, this.blocks.map((b) => ({ quotes: b.quotes, note: b.note })))
+    const body = serializeResponse(this.preamble, this.blocks.map((b) => ({ quotes: b.quotes, nths: b.nths, note: b.note })))
     const quotes = extractBlockquotes(body).map((text, i) => ({
       id: `q${i}`, text, selector: locateText(text, this.root) ?? [{ type: 'TextQuoteSelector', exact: text }],
     }))
@@ -205,7 +210,7 @@ export class Penumbra {
   }
 
   private async serializeAndSave(): Promise<boolean> {
-    const body = serializeResponse(this.preamble, this.blocks.map((b) => ({ quotes: b.quotes, note: b.note })))
+    const body = serializeResponse(this.preamble, this.blocks.map((b) => ({ quotes: b.quotes, nths: b.nths, note: b.note })))
     const quotes = extractBlockquotes(body).map((text, i) => ({
       id: `q${i}`, text, selector: locateText(text, this.root) ?? [{ type: 'TextQuoteSelector', exact: text }],
     }))
@@ -223,10 +228,10 @@ export class Penumbra {
 
   private blockById = (id: string | null) => this.blocks.find((b) => b.id === id)
   private docY = (r: Range): number => r.getBoundingClientRect().top + window.scrollY
-  // A block with comment text is a right-rail card. Its emoji reactions — and any
-  // emoji-only block's — render as bare glyphs in the left margin, stuck beside the
-  // quote. The card/popup picker only edits them; the margin is where they show.
-  private cards = () => this.blocks.filter((b) => b.text.trim() && b.ranges.length)
+  // EVERY block with emoji shows its reactions as a cluster in the left margin.
+  // A block with comment text is also a right-rail card (with tiny reactions
+  // hanging off its edge).
+  private cards = () => this.blocks.filter((b) => hasCommentText(b.text) && b.ranges.length)
   private emojiBlocks = () => this.blocks.filter((b) => b.emojis.length && b.ranges.length)
 
   // Reassemble a note from its emoji reactions and comment text. Leading
@@ -271,7 +276,8 @@ export class Penumbra {
   private layoutRightRail() {
     this.railRO?.disconnect()
     this.destroyCardEditor()
-    this.layer.querySelectorAll('.pen-card.rail').forEach((n) => n.remove())
+    this.layer.querySelectorAll('.pen-card.rail, .pen-cardemoji').forEach((n) => n.remove())
+    this.cardEmojiRow = undefined
     this.railEntries = []
     if (!this.highlightsOn || this.responsePanel) return
     const rootRect = this.root.getBoundingClientRect()
@@ -286,12 +292,20 @@ export class Penumbra {
       this.layer.appendChild(card)
       this.railEntries.push({ el: card, blk })
     }
+    // The focused card's reaction picker floats just BELOW the card (not inside it).
+    const focusedEntry = this.railEntries.find((e) => e.blk.id === this.focused)
+    if (focusedEntry) {
+      const row = document.createElement('div')
+      row.className = 'pen-cardemoji'; row.setAttribute('data-pen-ui', '')
+      row.appendChild(this.buildEmojiPanel(() => focusedEntry.blk.emojis, (e) => this.toggleCardEmoji(focusedEntry.blk, e, focusedEntry.el)))
+      this.layer.appendChild(row)
+      this.cardEmojiRow = row
+    }
     // Re-pack whenever any card changes height (expand, image load, editor grow).
     this.railRO = new ResizeObserver(() => this.queueReposition())
     this.railEntries.forEach((e) => this.railRO!.observe(e.el))
     this.repositionRail()
     // Mount the rich editor onto the focused card (lazy-loads the editor bundle).
-    const focusedEntry = this.railEntries.find((e) => e.blk.id === this.focused)
     if (focusedEntry) this.mountCardEditor(focusedEntry.el, focusedEntry.blk)
   }
 
@@ -328,10 +342,14 @@ export class Penumbra {
   private repositionRail() {
     const entries = this.railEntries
     if (!entries.length) return
-    const hs = entries.map((e) => e.el.offsetHeight)
+    const fi = entries.findIndex((e) => e.blk.id === this.focused)
+    // The focused card reserves extra room for its floating reaction picker below
+    // it; compact cards with reactions hang glyphs off their bottom edge (clearance).
+    const pickerH = this.cardEmojiRow ? this.cardEmojiRow.offsetHeight + 8 : 0
+    const hs = entries.map((e, i) =>
+      e.el.offsetHeight + (i === fi ? pickerH : e.blk.emojis.length && e.blk.id !== this.focused ? 11 : 0))
     const anchor = entries.map((e) => (e.blk.ranges[0] ? this.docY(e.blk.ranges[0]) : 0))
     const pos = anchor.slice()
-    const fi = entries.findIndex((e) => e.blk.id === this.focused)
     if (fi >= 0) {
       pos[fi] = anchor[fi]
       for (let i = fi + 1; i < entries.length; i++) pos[i] = Math.max(anchor[i], pos[i - 1] + hs[i - 1] + GAP)
@@ -340,25 +358,36 @@ export class Penumbra {
       for (let i = 1; i < entries.length; i++) pos[i] = Math.max(anchor[i], pos[i - 1] + hs[i - 1] + GAP)
     }
     entries.forEach((e, i) => (e.el.style.top = `${Math.max(0, pos[i])}px`))
+    if (this.cardEmojiRow && fi >= 0) {
+      this.cardEmojiRow.style.left = `${this.railLeft}px`
+      this.cardEmojiRow.style.top = `${Math.max(0, pos[fi]) + entries[fi].el.offsetHeight + 8}px`
+    }
   }
 
   private layoutLeftRail() {
     this.layer.querySelectorAll('.pen-emote-stack').forEach((n) => n.remove())
     if (!this.highlightsOn || this.responsePanel) return
     const rootRect = this.root.getBoundingClientRect()
-    const x = window.scrollX + Math.max(6, rootRect.left - 40)
+    // The cluster's right edge is pinned just left of the article (CSS translateX
+    // -100%); it grows leftward, and the first emoji — pinned at that right edge —
+    // never moves. Render reversed so emojis[0] lands on the right.
+    const rightEdge = window.scrollX + rootRect.left - 8
     let bottom = 0
     for (const blk of this.emojiBlocks().sort((a, b) => this.docY(a.ranges[0]) - this.docY(b.ranges[0]))) {
       const stack = document.createElement('div')
-      stack.className = 'pen-emote-stack'; stack.setAttribute('data-pen-ui', ''); stack.dataset.blockId = blk.id
-      stack.innerHTML = blk.emojis.map((e) => `<span class="pen-emote">${esc(e)}</span>`).join('')
-      stack.title = 'Edit reaction'
+      // Seed the spread (emphasised) state if this block is already hovered/focused,
+      // so a rebuild doesn't flash from overlapped → spread.
+      const emph = this.hovered === blk.id || this.focused === blk.id
+      stack.className = `pen-emote-stack${emph ? ' pen-emph' : ''}`; stack.setAttribute('data-pen-ui', ''); stack.dataset.blockId = blk.id
+      stack.innerHTML = blk.emojis.slice().reverse().map((e) => `<span class="pen-emote">${esc(e)}</span>`).join('')
+      stack.title = hasCommentText(blk.text) ? 'Open comment' : 'Edit reaction'
       stack.addEventListener('mouseenter', () => this.setHovered(blk.id))
       stack.addEventListener('mouseleave', () => this.setHovered(null))
-      stack.addEventListener('click', () => this.editBlock(blk))
+      // A reaction with a comment focuses that card; a bare reaction opens the popup.
+      stack.addEventListener('click', () => (hasCommentText(blk.text) ? this.focus(blk.id) : this.editBlock(blk)))
       this.layer.appendChild(stack)
       const top = Math.max(this.docY(blk.ranges[0]), bottom + 6)
-      stack.style.left = `${x}px`; stack.style.top = `${top}px`
+      stack.style.left = `${rightEdge}px`; stack.style.top = `${top}px`
       bottom = top + stack.offsetHeight
     }
   }
@@ -370,25 +399,25 @@ export class Penumbra {
 
     const quoteHtml = blk.quotes.map((q) => `<div class="pen-quote">${esc(q)}</div>`).join('')
     if (!expanded) {
-      const noteHtml = blk.text.trim()
+      const noteHtml = hasCommentText(blk.text)
         ? `<div class="pen-md">${renderMarkdown(blk.text)}</div>`
         : `<div class="pen-md pen-muted">Add a comment…</div>`
-      card.innerHTML = `${quoteHtml}<div class="pen-thread">${noteHtml}</div>`
+      const emojiHtml = blk.emojis.length
+        ? `<div class="pen-card-emoji">${blk.emojis.map((e) => `<span>${esc(e)}</span>`).join('')}</div>` : ''
+      card.innerHTML = `${quoteHtml}<div class="pen-thread">${noteHtml}</div>${emojiHtml}`
       card.addEventListener('click', () => this.focus(blk.id))
     } else {
       // Rich-text editor is mounted (lazy) onto this placeholder in layoutRightRail.
+      // The reaction picker lives OUTSIDE the card (floated below it) — see layoutRightRail.
       card.innerHTML = `${quoteHtml}
         <div class="pen-note-editor" data-note-editor><div class="pen-md">${renderMarkdown(blk.text)}</div></div>
-        <div class="pen-emojislot" data-emojislot></div>
-        <div class="pen-row pen-cardfoot"><span></span><span class="pen-savestate" data-cardsave></span></div>
+        <span class="pen-savestate" data-cardsave></span>
         <div class="pen-trashbox">
           <button class="pen-trash" data-act="del-init" title="Delete comment">${TRASH_SVG}</button>
           <div class="pen-trashconfirm" data-confirm hidden>
             <button class="pen-trash pen-yes" data-act="del-yes" title="Confirm delete">✓</button>
             <button class="pen-trash pen-no" data-act="del-no" title="Cancel">✕</button>
           </div></div>`
-      const slot = card.querySelector('[data-emojislot]') as HTMLElement
-      slot.appendChild(this.buildEmojiPanel(() => blk.emojis, (e) => this.toggleCardEmoji(blk, e, card)))
       const confirmEl = card.querySelector('[data-confirm]') as HTMLElement
       const trashBtn = card.querySelector('[data-act="del-init"]') as HTMLElement
       trashBtn.addEventListener('click', () => { trashBtn.style.display = 'none'; confirmEl.hidden = false })
@@ -410,8 +439,9 @@ export class Penumbra {
     this.renderAll()
   }
 
-  // Toggle a reaction on a focused card's block; autosaves and live-updates the
-  // left margin without rebuilding the editor, so the open card survives.
+  // Toggle a reaction on a focused card's block; the picker highlights it, the left
+  // margin updates, and it autosaves — WITHOUT rebuilding the rail, so the open card
+  // never collapses. Re-assert editor focus in case the button click stole it.
   private toggleCardEmoji(blk: Block, emoji: string, card: HTMLElement) {
     if (this.cardEditor) blk.text = this.cardEditor.getMarkdown()
     const i = blk.emojis.indexOf(emoji)
@@ -421,6 +451,10 @@ export class Penumbra {
     this.layoutLeftRail()
     this.queueReposition()
     this.saveQuiet(card)
+    // Restore focus at the SAME cursor position (no scroll/jump) in case the button
+    // click stole it — deferred so it wins after the browser settles focus.
+    const ed = this.cardEditor
+    requestAnimationFrame(() => ed?.refocus())
   }
 
   // ---- bidirectional emphasis (card/chip ↔ source highlight) ---------------
@@ -488,8 +522,9 @@ export class Penumbra {
     this.dismissCompose()
 
     // The block being edited; for a fresh selection, a detached one we only graft
-    // into the doc once it has content (on autosave or emoji pick).
-    const wb: Block = editBlk ?? { id: `b${this.blocks.length}`, quotes: [quote], note: '', emojis: [], text: '', ranges: [range!.cloneRange()] }
+    // into the doc once it has content (on autosave or emoji pick). The occurrence
+    // index pins this quote to the instance the reader actually selected.
+    const wb: Block = editBlk ?? { id: `b${this.blocks.length}`, quotes: [quote], nths: [occurrenceOf(range!, this.root)], note: '', emojis: [], text: '', ranges: [range!.cloneRange()] }
 
     const rect = anchor.getBoundingClientRect()
     const box = document.createElement('div')
@@ -511,35 +546,48 @@ export class Penumbra {
     this.composeEditor = factory(mount, wb.text, {
       onChange: (md) => { wb.text = md; wb.note = this.composeNote(wb.emojis, md); this.graftCompose(); this.saveQuiet() },
       uploadImage: (f) => this.api.uploadImage(f),
+      onSubmit: () => this.dismissCompose(), // ⌘/Ctrl+Enter saves the comment and closes
     })
     this.composeEditor.focus()
   }
 
   private editBlock(blk: Block) { void this.openCompose(null, blk) }
 
+  // A compose block is worth keeping only if it has a reaction OR real comment text
+  // (whitespace / blank lines / a lone reaction don't make a sidebar comment).
+  private composeWorthKeeping(wb: Block): boolean {
+    return wb.emojis.length > 0 || hasCommentText(wb.text)
+  }
   // Splice a fresh-selection block into the doc once it has content, and pull it
   // back out if emptied — so autosave never persists a bare, comment-less quote.
   private graftCompose() {
     const wb = this.composeBlock
     if (!wb || !this.composeNew) return
     const has = this.blocks.includes(wb)
-    if (wb.note.trim() && !has) this.blocks.push(wb)
-    else if (!wb.note.trim() && has) this.blocks = this.blocks.filter((b) => b !== wb)
+    const keep = this.composeWorthKeeping(wb)
+    if (keep && !has) this.blocks.push(wb)
+    else if (!keep && has) this.blocks = this.blocks.filter((b) => b !== wb)
   }
 
-  // Toggle a reaction on the open compose block; the picker highlights it, the
-  // left margin updates immediately, and the change autosaves. The popup stays open.
+  // Adding the FIRST reaction is react-and-go: commit and close (the common case).
+  // Adding a further reaction, or un-checking one, keeps the popup open (you're
+  // still curating the set — rare, but it shouldn't vanish under you).
   private toggleComposeEmoji(emoji: string) {
     const wb = this.composeBlock
     if (!wb) return
     if (this.composeEditor) wb.text = this.composeEditor.getMarkdown()
     const i = wb.emojis.indexOf(emoji)
-    if (i >= 0) wb.emojis.splice(i, 1)
-    else if (wb.emojis.length < MAX_EMOJI) wb.emojis.push(emoji)
-    wb.note = this.composeNote(wb.emojis, wb.text)
-    this.graftCompose()
-    this.layoutLeftRail()
-    this.saveQuiet()
+    if (i >= 0) { // uncheck → stay open
+      wb.emojis.splice(i, 1)
+      wb.note = this.composeNote(wb.emojis, wb.text)
+      this.graftCompose(); this.layoutLeftRail(); this.saveQuiet()
+    } else if (wb.emojis.length < MAX_EMOJI) {
+      const first = wb.emojis.length === 0 // only the first reaction dismisses
+      wb.emojis.push(emoji)
+      wb.note = this.composeNote(wb.emojis, wb.text)
+      if (first) this.finalizeCompose()
+      else { this.graftCompose(); this.layoutLeftRail(); this.saveQuiet() }
+    }
   }
 
   private promptSignIn(range: Range) {
@@ -573,11 +621,20 @@ export class Penumbra {
     const grid = wrap.querySelector('[data-grid]') as HTMLElement
     const more = wrap.querySelector('[data-more]') as HTMLElement
     const search = wrap.querySelector('.pen-emoji-search') as HTMLInputElement
+    // Tapping an emoji must NOT steal focus from the comment editor (that's what made
+    // the open card feel like it closed). preventDefault on the buttons keeps focus;
+    // the search input is excluded so it can still be focused/typed.
+    bar.addEventListener('mousedown', (e) => e.preventDefault())
+    grid.addEventListener('mousedown', (e) => e.preventDefault())
+    // CRITICAL: renderBar() detaches the clicked button mid-click; without stopping
+    // here the click bubbles to onDocClick with an orphaned target (no [data-pen-ui]
+    // ancestor), which then unfocuses & rebuilds the card. Stop it at the panel.
+    wrap.addEventListener('click', (e) => e.stopPropagation())
     const btn = (e: string, sel: string[]) => `<button class="${sel.includes(e) ? 'selected' : ''}" data-e="${esc(e)}">${esc(e)}</button>`
     const renderGrid = () => {
       const sel = getSel(); const ql = search.value.trim().toLowerCase()
       grid.innerHTML = EMOJI_DATA.filter(([e, kw]) => !ql || kw.includes(ql) || e === search.value).map(([e]) => btn(e, sel)).join('')
-      grid.querySelectorAll('[data-e]').forEach((b) => b.addEventListener('click', () => tap((b as HTMLElement).dataset.e!)))
+      grid.querySelectorAll('[data-e]').forEach((b) => b.addEventListener('click', (ev) => { ev.stopPropagation(); tap((b as HTMLElement).dataset.e!) }))
     }
     const renderBar = () => {
       const sel = getSel()
@@ -586,8 +643,8 @@ export class Penumbra {
       const quick = QUICK_EMOJI.filter((e) => !sel.includes(e)).slice(0, Math.max(0, MAX_EMOJI - sel.length))
       bar.innerHTML = sel.map((e) => btn(e, sel)).join('') + quick.map((e) => btn(e, sel)).join('') +
         `<button class="pen-emoji-more" data-act="more" title="More emoji">＋</button>`
-      bar.querySelectorAll('[data-e]').forEach((b) => b.addEventListener('click', () => tap((b as HTMLElement).dataset.e!)))
-      bar.querySelector('[data-act="more"]')!.addEventListener('click', () => { more.hidden = !more.hidden; if (!more.hidden) { renderGrid(); search.focus() } })
+      bar.querySelectorAll('[data-e]').forEach((b) => b.addEventListener('click', (ev) => { ev.stopPropagation(); tap((b as HTMLElement).dataset.e!) }))
+      bar.querySelector('[data-act="more"]')!.addEventListener('click', (ev) => { ev.stopPropagation(); more.hidden = !more.hidden; if (!more.hidden) { renderGrid(); search.focus() } })
     }
     const tap = (e: string) => { onToggle(e); renderBar(); if (!more.hidden) renderGrid() }
     search.addEventListener('input', renderGrid)
@@ -603,17 +660,24 @@ export class Penumbra {
     this.compose?.remove(); this.compose = undefined; this.composeCtx = undefined
   }
 
-  // Click-away / Escape: autosave the comment (no button), drop an empty draft,
-  // then re-render so the new card/chips appear.
-  private dismissCompose() {
-    if (!this.compose) { this.renderHighlights(); return }
+  // Commit the compose block if it's worth keeping (reaction or real comment text),
+  // else drop it; then close the popup. Used by react-and-go, click-away, ⌘↵, Esc.
+  private finalizeCompose() {
+    if (!this.compose) return
     const wb = this.composeBlock
     if (wb && this.composeEditor) { wb.text = this.composeEditor.getMarkdown(); wb.note = this.composeNote(wb.emojis, wb.text) }
-    const dirty = !!wb && (this.blocks.includes(wb) || (this.composeNew && !!wb.note.trim()))
-    if (wb && this.composeNew && wb.note.trim() && !this.blocks.includes(wb)) this.blocks.push(wb)
-    if (wb && !wb.note.trim()) this.blocks = this.blocks.filter((b) => b !== wb)
+    if (wb) {
+      const keep = this.composeWorthKeeping(wb)
+      if (keep && !this.blocks.includes(wb)) this.blocks.push(wb)
+      else if (!keep) this.blocks = this.blocks.filter((b) => b !== wb)
+    }
     this.teardownCompose()
-    if (dirty) this.saveDoc(); else this.renderAll()
+    window.getSelection()?.removeAllRanges()
+    this.saveDoc()
+  }
+  private dismissCompose() {
+    if (!this.compose) { this.renderHighlights(); return }
+    this.finalizeCompose()
   }
 
   // ---- pointer handling ----------------------------------------------------
@@ -623,12 +687,13 @@ export class Penumbra {
     this.dismissCompose(); this.removeQuoteBtn()
   }
   private onDocClick(e: MouseEvent) {
+    if (this.responsePanel) return // the response panel owns highlight clicks while open
     if ((e.target as HTMLElement).closest('[data-pen-ui]')) return
     if (window.getSelection()?.toString().trim()) return
     for (const b of this.blocks) {
       if (b.ranges.some((r) => this.hitsRange(e, r))) {
         // Has a comment → focus its card; emoji-only → compose box to add text/swap emoji.
-        if (b.text.trim()) return this.focus(b.id)
+        if (hasCommentText(b.text)) return this.focus(b.id)
         return this.editBlock(b)
       }
     }

@@ -118,6 +118,49 @@ export function resolveQuoteStrict(selectors: Selector[], root: Node): Range | n
   return range
 }
 
+// All start offsets of `exact` in `text`, in document order.
+function occurrences(text: string, exact: string): number[] {
+  const out: number[] = []
+  let i = text.indexOf(exact)
+  while (i >= 0) { out.push(i); i = text.indexOf(exact, i + 1) }
+  return out
+}
+
+// Which occurrence (1-based) of its own exact text does this selection point at?
+// 1 when the text is unique. Lets a quote pin the right instance of repeated text.
+export function occurrenceOf(range: Range, root: Node): number {
+  const idx = buildIndex(root)
+  const start = nodeOffsetToFlat(idx, range.startContainer, range.startOffset)
+  const end = nodeOffsetToFlat(idx, range.endContainer, range.endOffset)
+  if (start == null || end == null || end <= start) return 1
+  const exact = idx.text.slice(start, end)
+  const n = occurrences(idx.text, exact).indexOf(start)
+  return n >= 0 ? n + 1 : 1
+}
+
+// The root's flat visible text (skips Penumbra's own UI) — for counting how many
+// times a quote's text occurs, to drive the occurrence picker.
+export function sourceText(root: Node): string {
+  return buildIndex(root).text
+}
+
+// Resolve the Nth (1-based) occurrence of `exact` to a live Range. Falls back to
+// the last occurrence if nth overshoots (e.g. the source lost some copies).
+export function resolveNthQuote(exact: string, nth: number, root: Node): Range | null {
+  if (!exact) return null
+  const idx = buildIndex(root)
+  const occ = occurrences(idx.text, exact)
+  if (!occ.length) return null
+  const start = occ[Math.min(Math.max(1, nth || 1), occ.length) - 1]
+  const a = offsetToPoint(idx, start)
+  const b = offsetToPoint(idx, start + exact.length)
+  if (!a || !b) return null
+  const range = document.createRange()
+  range.setStart(a.node, a.offset)
+  range.setEnd(b.node, b.offset)
+  return range
+}
+
 // Best-effort: does this exact string occur in the source? Used for paste-match
 // (auto-anchoring pasted quotes) — returns selectors if found, else null.
 export function locateText(text: string, root: Node): Selector[] | null {

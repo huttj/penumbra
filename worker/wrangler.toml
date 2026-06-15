@@ -21,6 +21,10 @@ migrations_dir = "migrations"
 binding = "UPLOADS"
 bucket_name = "penumbra-uploads"
 
+# Periodic flush of changed response docs into the repo (needs GITHUB_TOKEN).
+[triggers]
+crons = ["*/30 * * * *"]
+
 # ---- production values (used by `wrangler deploy`) ----
 # Local `wrangler dev` overrides these via worker/.dev.vars (gitignored).
 [vars]

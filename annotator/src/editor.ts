@@ -2,10 +2,14 @@
 // on demand the first time the response panel is opened, so readers who never
 // write a response don't pay for ~600KB of editor code.
 import { Api } from './api'
-import { locateText, resolveQuoteStrict, selectorsFromRange } from './anchor'
-import { extractBlockquotes } from './markdown'
-import { Editor } from '@tiptap/core'
+import { locateText, occurrenceOf, resolveNthQuote, selectorsFromRange, sourceText } from './anchor'
+import { formatQuoteMarker, parseQuoteMarker } from './markdown'
+import { Editor, Extension } from '@tiptap/core'
+import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
+import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import StarterKit from '@tiptap/starter-kit'
+import Paragraph from '@tiptap/extension-paragraph'
+import Blockquote from '@tiptap/extension-blockquote'
 import Link from '@tiptap/extension-link'
 import Image from '@tiptap/extension-image'
 import { Markdown } from 'tiptap-markdown'
@@ -13,6 +17,161 @@ import { Markdown } from 'tiptap-markdown'
 type Opts = { api: Api; root: HTMLElement; source: string; commitSha: string | null; userName: string; onClose: () => void }
 
 const HL = !!(window as any).CSS?.highlights && typeof (globalThis as any).Highlight !== 'undefined'
+const MIN_QUOTE = 6 // a quote shorter than this can't be reliably anchored/highlighted
+
+// Highlight the Nth blockquote via a ProseMirror Decoration — NOT by mutating the
+// DOM directly, which fights ProseMirror's MutationObserver (it reverts the node,
+// so a hand-set class flickers on/off and the node looks like it's being re-rendered).
+const bqHlKey = new PluginKey<{ index: number }>('bqHighlight')
+const BqHighlight = Extension.create({
+  name: 'bqHighlight',
+  addProseMirrorPlugins() {
+    return [
+      new Plugin<{ index: number }>({
+        key: bqHlKey,
+        state: {
+          init: () => ({ index: -1 }),
+          apply: (tr, value) => tr.getMeta(bqHlKey) ?? value,
+        },
+        props: {
+          decorations(state) {
+            const idx = bqHlKey.getState(state)?.index ?? -1
+            if (idx < 0) return null
+            const decos: Decoration[] = []
+            let seen = -1
+            state.doc.forEach((node, offset) => {
+              if (node.type.name !== 'blockquote') return
+              seen++
+              if (seen === idx) decos.push(Decoration.node(offset, offset + node.nodeSize, { class: 'pen-bq-active' }))
+            })
+            return DecorationSet.create(state.doc, decos)
+          },
+        },
+      }),
+    ]
+  },
+})
+
+// Markdown can't hold an empty paragraph (blank lines collapse on round-trip), so
+// every reader's intentional blank line would vanish. Fix: serialize an empty
+// paragraph as a zero-width-space line (which markdown keeps), and strip that
+// sentinel back to an empty paragraph on load. Handles middle AND trailing blanks.
+const ZWSP = '​'
+const KeepBlankParagraphs = Paragraph.extend({
+  addStorage() {
+    return {
+      markdown: {
+        serialize(state: any, node: any) {
+          if (node.content.size === 0) state.write(ZWSP)
+          else state.renderInline(node)
+          state.closeBlock(node)
+        },
+        parse: {},
+      },
+    }
+  },
+})
+// Turn loaded sentinel paragraphs back into genuinely-empty ones (clean to edit).
+function clearBlankSentinels(editor: Editor): void {
+  const ranges: { from: number; to: number }[] = []
+  editor.state.doc.descendants((node, pos) => {
+    if (node.type.name === 'paragraph' && node.textContent === ZWSP) ranges.push({ from: pos + 1, to: pos + 1 + node.content.size })
+  })
+  if (!ranges.length) return
+  const tr = editor.state.tr
+  for (const r of ranges.reverse()) tr.delete(r.from, r.to)
+  editor.view.dispatch(tr.setMeta('addToHistory', false))
+}
+// A blockquote that carries an occurrence index (which copy of repeated source
+// text it quotes). The index isn't a visible part of the text; it round-trips
+// through markdown via the `>N text` encoding handled below.
+const QuoteBlock = Blockquote.extend({
+  addAttributes() {
+    return { nth: { default: 1, rendered: false } }
+  },
+})
+// Strip `>N ` markers to plain `> ` before the editor parses (markdown-it doesn't
+// know our convention); return the occurrence per blockquote in document order.
+function stripQuoteMarkers(body: string): { clean: string; nths: number[] } {
+  const nths: number[] = []
+  const out: string[] = []
+  let inQuote = false
+  for (const line of (body ?? '').split('\n')) {
+    if (/^\s*>/.test(line)) {
+      if (!inQuote) { const pm = parseQuoteMarker(line); nths.push(pm.nth); out.push(`> ${pm.text}`); inQuote = true }
+      else out.push(line)
+    } else { inQuote = false; out.push(line) }
+  }
+  return { clean: out.join('\n'), nths }
+}
+// Re-attach the occurrence indices to the loaded blockquote nodes (same order).
+function applyQuoteNths(editor: Editor, nths: number[]): void {
+  const tr = editor.state.tr
+  let i = 0, changed = false
+  editor.state.doc.forEach((node, offset) => {
+    if (node.type.name !== 'blockquote') return
+    const want = nths[i] ?? 1; i++
+    if ((node.attrs.nth ?? 1) !== want) { tr.setNodeAttribute(offset, 'nth', want); changed = true }
+  })
+  if (changed) editor.view.dispatch(tr.setMeta('addToHistory', false))
+}
+// getMarkdown, then re-encode each blockquote's occurrence index as `>N `.
+function getMd(editor: Editor): string {
+  const md = (editor.storage as any).markdown.getMarkdown()
+  const nths: number[] = []
+  editor.state.doc.forEach((node) => { if (node.type.name === 'blockquote') nths.push(node.attrs.nth ?? 1) })
+  if (!nths.some((n) => n > 1)) return md
+  const lines = md.split('\n')
+  let i = 0, inQuote = false
+  for (let k = 0; k < lines.length; k++) {
+    if (/^\s*>/.test(lines[k])) {
+      if (!inQuote) { const nth = nths[i] ?? 1; i++; if (nth > 1) lines[k] = formatQuoteMarker(nth, parseQuoteMarker(lines[k]).text); inQuote = true }
+    } else inQuote = false
+  }
+  return lines.join('\n')
+}
+
+// Comments never keep trailing blank lines (or the zero-width sentinel).
+function stripTrailingBlanks(md: string): string {
+  return md.replace(/[\s​]+$/, '')
+}
+// The response DOC: drop trailing blanks and force exactly one EXTRA blank line
+// before every quote but the first (i.e. two blank lines) — matches serializeResponse.
+function normalizeDocBlanks(md: string): string {
+  const lines = stripTrailingBlanks(md).split('\n')
+  const out: string[] = []
+  let seenQuote = false, inQuote = false
+  for (const line of lines) {
+    const isQuote = /^\s*>/.test(line)
+    if (isQuote && !inQuote) {
+      if (seenQuote) {
+        while (out.length && out[out.length - 1].replace(/​/g, '').trim() === '') out.pop()
+        out.push('', '')
+      }
+      seenQuote = true
+    }
+    inQuote = isQuote
+    out.push(line)
+  }
+  return out.join('\n')
+}
+// On load, insert an empty paragraph before each quote but the first, so the editor
+// SHOWS the extra blank line (markdown collapses it on parse).
+function ensureBlankBeforeQuotes(editor: Editor): void {
+  const positions: number[] = []
+  let seenQuote = false, prevEmptyPara = false
+  editor.state.doc.forEach((node, offset) => {
+    if (node.type.name === 'blockquote') {
+      if (seenQuote && !prevEmptyPara) positions.push(offset)
+      seenQuote = true
+    }
+    prevEmptyPara = node.type.name === 'paragraph' && node.content.size === 0
+  })
+  if (!positions.length) return
+  const tr = editor.state.tr
+  for (const pos of positions.reverse()) tr.insert(pos, editor.schema.nodes.paragraph.create())
+  editor.view.dispatch(tr.setMeta('addToHistory', false))
+}
 
 export class ResponsePanel {
   private api: Api
@@ -28,6 +187,8 @@ export class ResponsePanel {
   private hoverRaf = false
   private mounted = false
   private lastMd = ''
+  private activeQuote = -1
+  private srcText = ''
 
   constructor(o: Opts) {
     this.api = o.api; this.root = o.root; this.source = o.source
@@ -42,6 +203,7 @@ export class ResponsePanel {
 
   close() {
     document.removeEventListener('mousemove', this.onSourceHover)
+    document.removeEventListener('click', this.onSourceClick)
     this.flushSave()
     if (HL) { const h = (window as any).CSS.highlights; h.delete('penumbra-quote'); h.delete('penumbra-quote-active') }
     this.editor?.destroy()
@@ -69,19 +231,22 @@ export class ResponsePanel {
     this.editor = new Editor({
       element: el.querySelector('[data-editor]') as HTMLElement,
       extensions: [
-        StarterKit,
+        StarterKit.configure({ paragraph: false, blockquote: false }),
+        KeepBlankParagraphs,
+        QuoteBlock,
         Link.configure({ openOnClick: false, autolink: true, HTMLAttributes: { target: '_blank', rel: 'noopener' } }),
         Image.configure({ inline: false }),
         Markdown.configure({ html: false, linkify: true, breaks: true, transformPastedText: true }),
+        BqHighlight,
       ],
-      content: this.body,
+      content: stripQuoteMarkers(this.body).clean,
       editorProps: {
         attributes: { class: 'pen-prose', spellcheck: 'true' },
         handlePaste: (_view, event) => this.handleImagePaste(event),
       },
       onUpdate: () => {
         if (!this.mounted) return // ignore the initial content-parse update
-        const md = (this.editor.storage as any).markdown.getMarkdown()
+        const md = normalizeDocBlanks(getMd(this.editor))
         if (md === this.lastMd) return
         this.lastMd = md
         this.body = md
@@ -89,30 +254,90 @@ export class ResponsePanel {
       },
       onSelectionUpdate: () => this.amplifyAtCursor(),
     })
+    clearBlankSentinels(this.editor) // turn loaded blank-line sentinels back into empty paragraphs
+    ensureBlankBeforeQuotes(this.editor) // show the extra blank line before quotes (markdown collapsed it)
+    applyQuoteNths(this.editor, stripQuoteMarkers(this.body).nths) // re-attach occurrence indices
     this.mounted = true
-    this.lastMd = (this.editor.storage as any).markdown.getMarkdown()
+    this.lastMd = normalizeDocBlanks(getMd(this.editor))
 
     // Delegated hover (survives ProseMirror re-renders): hovering a blockquote in
     // the editor emphasizes its source highlight; off a quote, falls back to cursor.
     const mount = el.querySelector('[data-editor]') as HTMLElement
     mount.addEventListener('mouseover', (e) => {
-      this.flashBlockquote(null)
+      this.setActiveQuote(-1)
       const bq = (e.target as HTMLElement).closest('blockquote')
-      if (bq) this.amplify((bq.textContent ?? '').trim()); else this.amplifyAtCursor()
+      if (bq) {
+        const idx = [...mount.querySelectorAll('blockquote')].indexOf(bq) // DOM order == doc order
+        this.amplifyAnchor(idx >= 0 ? this.quoteAnchors()[idx] : null)
+      } else this.amplifyAtCursor()
     })
     mount.addEventListener('mouseleave', () => this.amplifyAtCursor())
     el.querySelector('[data-act="close"]')!.addEventListener('click', () => this.close())
     document.addEventListener('mousemove', this.onSourceHover, { passive: true })
-    setTimeout(() => this.editor.commands.focus('end'), 0)
+    document.addEventListener('click', this.onSourceClick)
+    setTimeout(() => { if (!this.editor.isDestroyed) this.editor.commands.focus('end') }, 0)
+
+    // The occurrence picker: a tiny "N of M" badge with ‹ › on any quote whose text
+    // repeats in the source, to pick which instance it points at.
+    this.srcText = sourceText(this.root)
+    const self = this
+    this.editor.registerPlugin(new Plugin({
+      key: new PluginKey('penOcc'),
+      props: {
+        decorations(state) {
+          const decos: Decoration[] = []
+          state.doc.forEach((node, offset) => {
+            if (node.type.name !== 'blockquote') return
+            const text = node.textContent.trim()
+            const dim = () => decos.push(Decoration.node(offset, offset + node.nodeSize, { class: 'pen-bq-orphan' }))
+            // Anything that won't anchor — too short, OR text not found in the source —
+            // gets the single "not anchored" colour, and no occurrence picker.
+            if (text.length < MIN_QUOTE) { dim(); return }
+            const total = self.countOccurrences(text)
+            if (total === 0) {
+              dim()
+            } else if (total > 1) {
+              const nth = Math.min(node.attrs.nth ?? 1, total)
+              decos.push(Decoration.widget(offset + 1, () => self.makeOccBadge(offset, nth, total), { side: -1, key: `occ-${offset}-${nth}-${total}` }))
+            }
+          })
+          return DecorationSet.create(state.doc, decos)
+        },
+      },
+    }))
+  }
+
+  private countOccurrences(text: string): number {
+    return text ? this.srcText.split(text).length - 1 : 0
+  }
+  private makeOccBadge(offset: number, nth: number, total: number): HTMLElement {
+    const el = document.createElement('span')
+    el.className = 'pen-occ'
+    el.innerHTML = `<button class="pen-occ-a" data-d="-1" title="Previous match">‹</button>` +
+      `<span class="pen-occ-n">${nth} of ${total}</span>` +
+      `<button class="pen-occ-a" data-d="1" title="Next match">›</button>`
+    el.querySelectorAll<HTMLButtonElement>('.pen-occ-a').forEach((b) => {
+      b.addEventListener('mousedown', (e) => e.preventDefault()) // keep editor focus
+      b.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); this.setQuoteNth(offset, nth + Number(b.dataset.d), total) })
+    })
+    return el
+  }
+  private setQuoteNth(offset: number, nth: number, total: number) {
+    const node = this.editor.state.doc.nodeAt(offset)
+    if (!node || node.type.name !== 'blockquote') return
+    const wrapped = ((nth - 1 + total) % total) + 1 // cycle within 1..total
+    this.editor.view.dispatch(this.editor.state.tr.setNodeAttribute(offset, 'nth', wrapped))
+    this.editor.commands.focus(null, { scrollIntoView: false })
   }
 
   appendQuote(range: Range) {
     const exact = (selectorsFromRange(range, this.root)?.find((s: any) => s.type === 'TextQuoteSelector') as any)?.exact ?? ''
     if (!exact) return
+    const nth = occurrenceOf(range, this.root) // pin which copy of repeated text this is
     const doc = this.editor.state.doc
     const last = doc.lastChild
     const lastEmpty = !!last && last.type.name === 'paragraph' && last.content.size === 0
-    const blockquote = { type: 'blockquote', content: [{ type: 'paragraph', content: [{ type: 'text', text: exact }] }] }
+    const blockquote = { type: 'blockquote', attrs: { nth }, content: [{ type: 'paragraph', content: [{ type: 'text', text: exact }] }] }
     if (lastEmpty) {
       // reuse the existing trailing blank line; the cursor lands on it, after the quote
       this.editor.chain().insertContentAt(doc.content.size - last!.nodeSize, blockquote).focus('end').run()
@@ -134,12 +359,21 @@ export class ResponsePanel {
     return false
   }
 
-  private rangeFor(text: string): Range | null {
-    return resolveQuoteStrict([{ type: 'TextQuoteSelector', exact: text } as any], this.root)
+  // The editor's quotes (text + occurrence index), in document order — the
+  // canonical list shared by the source ranges, DOM blockquotes, and doc nodes.
+  private quoteAnchors(): { text: string; nth: number }[] {
+    const out: { text: string; nth: number }[] = []
+    this.editor.state.doc.forEach((node) => {
+      if (node.type.name === 'blockquote') out.push({ text: node.textContent, nth: node.attrs.nth ?? 1 })
+    })
+    return out
+  }
+  private rangeForAnchor(a: { text: string; nth: number } | null): Range | null {
+    return a && a.text.trim().length >= MIN_QUOTE ? resolveNthQuote(a.text.trim(), a.nth, this.root) : null
   }
   private renderQuoteHighlights() {
     if (!HL) return
-    const ranges = extractBlockquotes(this.body).map((t) => this.rangeFor(t)).filter(Boolean) as Range[]
+    const ranges = this.quoteAnchors().map((a) => this.rangeForAnchor(a)).filter(Boolean) as Range[]
     const h = (window as any).CSS.highlights
     if (ranges.length) h.set('penumbra-quote', new (globalThis as any).Highlight(...ranges)); else h.delete('penumbra-quote')
   }
@@ -147,17 +381,26 @@ export class ResponsePanel {
   // blockquote, that one; otherwise the nearest blockquote above it.
   private amplifyAtCursor() {
     const pos = this.editor.state.selection.from
-    let text: string | null = null
-    this.editor.state.doc.descendants((node, p) => {
-      if (node.type.name === 'blockquote' && p <= pos) text = node.textContent.trim()
+    let hit: { text: string; nth: number } | null = null
+    this.editor.state.doc.forEach((node, offset) => {
+      if (node.type.name === 'blockquote' && offset <= pos) hit = { text: node.textContent.trim(), nth: node.attrs.nth ?? 1 }
     })
-    this.amplify(text)
+    this.amplifyAnchor(hit)
   }
-  private amplify(text: string | null) {
+  private amplifyAnchor(a: { text: string; nth: number } | null) {
     if (!HL) return
     const h = (window as any).CSS.highlights
-    const r = text && text.length >= 6 ? this.rangeFor(text) : null
+    const r = this.rangeForAnchor(a)
     if (r) h.set('penumbra-quote-active', new (globalThis as any).Highlight(r)); else h.delete('penumbra-quote-active')
+  }
+  // Which quote (by index) is under this pointer position? -1 if none.
+  private hitQuoteIndex(e: MouseEvent): number {
+    const anchors = this.quoteAnchors()
+    for (let i = 0; i < anchors.length; i++) {
+      const r = this.rangeForAnchor(anchors[i])
+      if (r && [...r.getClientRects()].some((rc) => e.clientX >= rc.left && e.clientX <= rc.right && e.clientY >= rc.top && e.clientY <= rc.bottom)) return i
+    }
+    return -1
   }
   private onSourceHover = (e: MouseEvent) => {
     if (this.hoverRaf) return
@@ -165,24 +408,67 @@ export class ResponsePanel {
     requestAnimationFrame(() => {
       this.hoverRaf = false
       if ((e.target as HTMLElement)?.closest?.('[data-pen-ui]')) return // over the editor: handled there
-      let hit: string | null = null
-      for (const t of extractBlockquotes(this.body)) {
-        const r = this.rangeFor(t)
-        if (r && [...r.getClientRects()].some((rc) => e.clientX >= rc.left && e.clientX <= rc.right && e.clientY >= rc.top && e.clientY <= rc.bottom)) { hit = t; break }
-      }
-      if (hit) { this.amplify(hit); this.flashBlockquote(hit) }
-      else { this.flashBlockquote(null); this.amplifyAtCursor() }
+      const i = this.hitQuoteIndex(e)
+      if (i >= 0) { this.amplifyAnchor(this.quoteAnchors()[i]); this.setActiveQuote(i) }
+      else { this.setActiveQuote(-1); this.amplifyAtCursor() }
     })
   }
-  private flashBlockquote(text: string | null) {
-    const target = text == null ? null : text.replace(/\s+/g, ' ').trim()
-    let hit: HTMLElement | null = null
-    this.el.querySelectorAll<HTMLElement>('.pen-prose blockquote').forEach((bq) => {
-      const on = target != null && (bq.textContent ?? '').replace(/\s+/g, ' ').trim() === target
-      bq.classList.toggle('pen-bq-active', on)
-      if (on) hit = bq
+  // Clicking a source highlight drops the cursor on a blank line at the end of the
+  // RESPONSE prose that quote owns (the writing after the blockquote).
+  private onSourceClick = (e: MouseEvent) => {
+    if ((e.target as HTMLElement)?.closest?.('[data-pen-ui]')) return // clicks inside the editor/UI
+    const i = this.hitQuoteIndex(e)
+    if (i >= 0) this.cursorToResponse(i)
+  }
+  // Locate the Nth blockquote node; returns its offset + nodeSize, or null.
+  private nthBlockquote(index: number): { offset: number; size: number } | null {
+    let seen = -1, fOffset = -1, fSize = -1
+    this.editor.state.doc.forEach((node, offset) => {
+      if (fOffset >= 0 || node.type.name !== 'blockquote') return
+      seen++
+      if (seen === index) { fOffset = offset; fSize = node.nodeSize }
     })
-    if (hit) (hit as HTMLElement).scrollIntoView({ block: 'nearest' })
+    return fOffset >= 0 ? { offset: fOffset, size: fSize } : null
+  }
+  private cursorToResponse(index: number) {
+    const bq = this.nthBlockquote(index)
+    if (!bq) return
+    const after = bq.offset + bq.size
+    let done = false
+    let sectionEnd = after // position just after the section's last block
+    let lastBlankOffset = -1 // a trailing empty paragraph to reuse, if any
+    this.editor.state.doc.forEach((node, offset) => {
+      if (done || offset < after) return // skip up to & including the quote
+      if (node.type.name === 'blockquote') { done = true; return } // next quote → section ends
+      sectionEnd = offset + node.nodeSize
+      lastBlankOffset = node.type.name === 'paragraph' && node.content.size === 0 ? offset : -1
+    })
+    let caret: number
+    if (lastBlankOffset >= 0) {
+      caret = lastBlankOffset + 1 // reuse the existing trailing blank line
+    } else {
+      this.editor.chain().insertContentAt(sectionEnd, { type: 'paragraph' }).run() // ensure one
+      caret = sectionEnd + 1
+    }
+    const { state } = this.editor
+    const sel = TextSelection.near(state.doc.resolve(Math.min(caret, state.doc.content.size)), 1)
+    this.editor.view.dispatch(state.tr.setSelection(sel))
+    this.editor.view.focus()
+    this.setActiveQuote(index)
+    this.scrollToQuote(index)
+  }
+  // Highlight the Nth blockquote via a Decoration (a no-op transaction that doesn't
+  // change the doc) — ProseMirror applies the class itself, so nothing flickers.
+  private setActiveQuote(index: number) {
+    if (index === this.activeQuote) return
+    this.activeQuote = index
+    const { state, dispatch } = this.editor.view
+    dispatch(state.tr.setMeta(bqHlKey, { index }))
+  }
+  private scrollToQuote(index: number) {
+    const bq = this.nthBlockquote(index)
+    const dom = bq && this.editor.view.nodeDOM(bq.offset)
+    if (dom instanceof HTMLElement) dom.scrollIntoView({ block: 'center', behavior: 'smooth' })
   }
 
   private scheduleSave() {
@@ -192,9 +478,10 @@ export class ResponsePanel {
   }
   private async flushSave() {
     clearTimeout(this.saveTimer)
-    const quotes = extractBlockquotes(this.body).map((text, i) => ({
-      id: `q${i}`, text, selector: locateText(text, this.root) ?? [{ type: 'TextQuoteSelector', exact: text }],
-    }))
+    const quotes = this.quoteAnchors().map((a, i) => {
+      const text = a.text.trim()
+      return { id: `q${i}`, text, selector: locateText(text, this.root) ?? [{ type: 'TextQuoteSelector', exact: text }] }
+    })
     try { await this.api.saveResponse(this.source, this.body, quotes, this.commitSha); this.setSave('saved') }
     catch { this.setSave('save failed') }
   }
@@ -226,13 +513,14 @@ async function insertImage(editor: Editor, file: File, upload?: (f: File) => Pro
 }
 
 // A small standalone rich editor for inline margin-card comment editing.
-export function createMiniEditor(mount: HTMLElement, markdown: string, opts: { onChange: (md: string) => void; uploadImage?: (f: File) => Promise<string> }) {
+export function createMiniEditor(mount: HTMLElement, markdown: string, opts: { onChange: (md: string) => void; uploadImage?: (f: File) => Promise<string>; onSubmit?: () => void }) {
   let mounted = false
   let last = markdown
   const editor = new Editor({
     element: mount,
     extensions: [
-      StarterKit,
+      StarterKit.configure({ paragraph: false }),
+      KeepBlankParagraphs,
       Link.configure({ openOnClick: false, autolink: true, HTMLAttributes: { target: '_blank', rel: 'noopener' } }),
       Image.configure({ inline: false }),
       Markdown.configure({ html: false, linkify: true, breaks: true, transformPastedText: true }),
@@ -240,6 +528,10 @@ export function createMiniEditor(mount: HTMLElement, markdown: string, opts: { o
     content: markdown,
     editorProps: {
       attributes: { class: 'pen-prose pen-mini', spellcheck: 'true' },
+      handleKeyDown: (_v, e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { opts.onSubmit?.(); return true }
+        return false
+      },
       handlePaste: (_v, e) => {
         const items = (e as ClipboardEvent).clipboardData?.items
         if (items) {
@@ -255,18 +547,22 @@ export function createMiniEditor(mount: HTMLElement, markdown: string, opts: { o
     },
     onUpdate: () => {
       if (!mounted) return // the initial content-parse update isn't a real edit
-      const md = (editor.storage as any).markdown.getMarkdown()
+      const md = stripTrailingBlanks(getMd(editor)) // comments never keep trailing blanks
       if (md === last) return
       last = md
       opts.onChange(md)
     },
   })
+  clearBlankSentinels(editor) // turn loaded blank-line sentinels back into empty paragraphs
   mounted = true
-  last = (editor.storage as any).markdown.getMarkdown() // baseline against the normalized init content
+  last = stripTrailingBlanks(getMd(editor)) // baseline against the normalized init content
   return {
     destroy: () => editor.destroy(),
-    getMarkdown: () => (editor.storage as any).markdown.getMarkdown(),
+    getMarkdown: () => stripTrailingBlanks(getMd(editor)),
     focus: () => editor.commands.focus('end'),
+    // Re-focus at the EXISTING cursor position without scrolling — used after a
+    // reaction tap so the comment editor never loses its place.
+    refocus: () => editor.commands.focus(null, { scrollIntoView: false }),
   }
 }
 

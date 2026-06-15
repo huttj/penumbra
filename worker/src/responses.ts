@@ -86,6 +86,14 @@ responses.post('/', async (c) => {
   return c.json({ id, ok: true, updated: ts })
 })
 
+// Flush now (author only): the same commit-to-repo sweep the cron runs.
+responses.post('/flush', async (c) => {
+  const user = await currentUser(c)
+  if (!user || !isAuthor(c.env, user.id)) return c.json({ error: 'author only' }, 403)
+  if (!c.env.GITHUB_TOKEN || !c.env.GITHUB_REPO) return c.json({ error: 'write-back not configured' }, 501)
+  return c.json({ ok: true, ...(await flushResponses(c.env)) })
+})
+
 // Submit: commit the reader's response into the author's repo as markdown.
 responses.post('/submit', async (c) => {
   const user = await currentUser(c)
@@ -123,6 +131,32 @@ responses.post('/submit', async (c) => {
 
   return c.json({ ok: true, path, commit: result.commit, url: result.url })
 })
+
+// Periodic flush (cron): commit every response that changed since its last flush
+// into the repo as markdown, so the author can pull feedback into their vault.
+// No-op without a GitHub token. Dedupes via the `flushed` column.
+export async function flushResponses(env: Env): Promise<{ committed: number; errors: number }> {
+  if (!env.GITHUB_TOKEN || !env.GITHUB_REPO) return { committed: 0, errors: 0 }
+  const rows = await env.DB.prepare(
+    `SELECT r.*, u.name AS creator_name
+       FROM responses r LEFT JOIN users u ON u.id = r.creator_id
+      WHERE trim(r.body) != '' AND (r.flushed IS NULL OR r.flushed != r.updated)`
+  ).all<any>()
+  let committed = 0
+  let errors = 0
+  for (const row of rows.results ?? []) {
+    try {
+      const md = composeDoc(row, row.source)
+      const path = `feedback/${pageSlug(row.source)}/${slugify(row.creator_name || row.creator_id)}.md`
+      await commitFile(env, path, md, `flush: ${row.creator_name ?? 'reader'} on ${pageSlug(row.source)}`)
+      await env.DB.prepare(`UPDATE responses SET flushed = ? WHERE id = ?`).bind(row.updated, row.id).run()
+      committed++
+    } catch {
+      errors++
+    }
+  }
+  return { committed, errors }
+}
 
 // Compose the committed markdown: frontmatter + essay (quotes are inline already).
 function composeDoc(row: any, source: string): string {

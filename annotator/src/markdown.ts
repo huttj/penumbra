@@ -5,20 +5,41 @@
 const esc = (s: string): string =>
   s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 
-// Pull blockquote passages from markdown (consecutive '>' lines = one quote).
-export function extractBlockquotes(md: string): string[] {
-  const out: string[] = []
-  let cur: string[] = []
-  for (const ln of (md ?? '').split('\n')) {
-    if (/^\s*>/.test(ln)) cur.push(ln.replace(/^\s*>\s?/, ''))
-    else if (cur.length) { out.push(cur.join(' ').trim()); cur = [] }
-  }
-  if (cur.length) out.push(cur.join(' ').trim())
-  return out.filter((t) => t.length >= 6)
+// A quote line carries an optional occurrence index so repeated text pins the
+// right instance: `>2 text` (occurrence 2 — NO space after >) vs `> text` (the
+// first/only occurrence — note the space). The number is hidden in every render.
+export function parseQuoteMarker(line: string): { nth: number; text: string } {
+  const m = /^\s*>(\d+)\s(.*)$/.exec(line)
+  if (m) return { nth: Number(m[1]), text: m[2] }
+  return { nth: 1, text: (line ?? '').replace(/^\s*>\s?/, '') }
+}
+export function formatQuoteMarker(nth: number, text: string): string {
+  return nth > 1 ? `>${nth} ${text}` : `> ${text}`
 }
 
-// A response block: a quote (one or more '>' lines) and the note it owns.
-export type RBlock = { quotes: string[]; note: string }
+// Pull quote passages (text + occurrence) from markdown; consecutive '>' lines =
+// one quote, with the occurrence read from its first line.
+export function extractQuotes(md: string): { text: string; nth: number }[] {
+  const out: { text: string; nth: number }[] = []
+  let cur: string[] = []
+  let nth = 1
+  const flush = () => { const t = cur.join(' ').trim(); if (t.length >= 6) out.push({ text: t, nth }); cur = []; nth = 1 }
+  for (const ln of (md ?? '').split('\n')) {
+    if (/^\s*>/.test(ln)) {
+      if (!cur.length) { const pm = parseQuoteMarker(ln); nth = pm.nth; cur.push(pm.text) }
+      else cur.push(ln.replace(/^\s*>\s?/, ''))
+    } else if (cur.length) flush()
+  }
+  if (cur.length) flush()
+  return out
+}
+export function extractBlockquotes(md: string): string[] {
+  return extractQuotes(md).map((q) => q.text)
+}
+
+// A response block: a quote (one or more '>' lines, with its occurrence index)
+// and the note it owns.
+export type RBlock = { quotes: string[]; nths: number[]; note: string }
 
 const isQ = (l: string | undefined) => /^\s*>/.test(l ?? '')
 
@@ -34,31 +55,37 @@ export function parseResponse(md: string): { preamble: string; blocks: RBlock[] 
   const blocks: RBlock[] = []
   while (i < lines.length) {
     const q: string[] = []
-    while (i < lines.length && isQ(lines[i])) { q.push(lines[i].replace(/^\s*>\s?/, '')); i++ }
+    let nth = 1
+    while (i < lines.length && isQ(lines[i])) {
+      if (!q.length) { const pm = parseQuoteMarker(lines[i]); nth = pm.nth; q.push(pm.text) }
+      else q.push(lines[i].replace(/^\s*>\s?/, ''))
+      i++
+    }
     const note: string[] = []
     while (i < lines.length && !isQ(lines[i])) { note.push(lines[i]); i++ }
-    // Drop the leading gap blank(s) after the quote, then exactly ONE structural
-    // trailing blank (the inter-block separator / file-final newline). Any trailing
-    // blank lines beyond that are the reader's own — kept so editors round-trip them.
+    // Drop the leading gap blank(s) after the quote and ALL trailing blank lines
+    // (incl. the zero-width sentinel) — comments never keep trailing blanks now.
     while (note.length && note[0].trim() === '') note.shift()
-    if (note.length && note[note.length - 1].trim() === '') note.pop()
-    blocks.push({ quotes: [q.join(' ').trim()], note: note.join('\n') })
+    while (note.length && note[note.length - 1].replace(/​/g, '').trim() === '') note.pop()
+    blocks.push({ quotes: [q.join(' ').trim()], nths: [nth], note: note.join('\n') })
   }
   return { preamble: preamble.join('\n').trim(), blocks }
 }
 
-// Round-trip the structure back to markdown. A note keeps its own trailing blank
-// lines (so the editor can restore them); only leading whitespace is dropped.
+// Round-trip the structure back to markdown. Notes carry no trailing blanks, and
+// there's an extra blank line before every quote but the first (more readable).
 export function serializeResponse(preamble: string, blocks: RBlock[]): string {
-  const parts: string[] = []
-  if (preamble.trim()) parts.push(preamble.trim())
+  const blockStrs: string[] = []
   for (const b of blocks) {
-    const note = b.note.replace(/^\n+/, '')
+    const note = b.note.replace(/^\n+/, '').replace(/[\s​]+$/, '') // drop leading + trailing blanks
     if (!b.quotes.join('').trim() && !note.trim()) continue
-    const qs = b.quotes.map((q) => `> ${q.replace(/\n/g, ' ')}`).join('\n>\n')
-    parts.push(note ? `${qs}\n\n${note}` : qs)
+    const qs = b.quotes.map((q, k) => formatQuoteMarker(b.nths?.[k] ?? 1, q.replace(/\n/g, ' '))).join('\n>\n')
+    blockStrs.push(note ? `${qs}\n\n${note}` : qs)
   }
-  return parts.join('\n\n') + '\n'
+  const blockBody = blockStrs.join('\n\n\n') // '\n\n\n' = one extra blank line before quotes 2..n
+  const pre = preamble.trim()
+  const body = pre && blockBody ? `${pre}\n\n${blockBody}` : pre || blockBody
+  return body + '\n'
 }
 
 // Split a note into its LEADING emoji(s) (reactions → left chips) and the
@@ -79,6 +106,23 @@ export function splitLeadingEmojis(note: string): { emojis: string[]; text: stri
     if (m) { idx = m[0].length; for (const ch of [...m[0]]) if (/\p{Extended_Pictographic}/u.test(ch)) emojis.push(ch) }
   }
   return { emojis, text: t.slice(idx) }
+}
+
+// True only if `text` holds real comment content — at least one character that
+// isn't whitespace, the zero-width blank-line sentinel, or an emoji. (So a blank
+// editor, or one with only reactions, never spawns a sidebar comment card.)
+export function hasCommentText(text: string): boolean {
+  const t = (text ?? '').replace(/​/g, '')
+  const Seg = (Intl as any).Segmenter
+  if (typeof Seg === 'function') {
+    for (const { segment } of new Seg('en', { granularity: 'grapheme' }).segment(t)) {
+      if (/^\s+$/.test(segment)) continue
+      if (/\p{Extended_Pictographic}/u.test(segment)) continue
+      return true
+    }
+    return false
+  }
+  return /\S/.test(t.replace(/\p{Extended_Pictographic}/gu, ''))
 }
 
 // A note that's ONLY emoji (one or more) renders as a left-rail chip, not a card.
@@ -115,7 +159,7 @@ export function renderMarkdown(md: string): string {
       out.push(`<pre><code>${esc(buf.join('\n'))}</code></pre>`)
       continue
     }
-    if (/^\s*$/.test(line)) { i++; continue }
+    if (/^[\s​]*$/.test(line)) { i++; continue } // blank, incl. the zero-width blank-line sentinel
     if (/^#{1,6}\s/.test(line)) {
       const m = /^(#{1,6})\s+(.*)$/.exec(line)!
       out.push(`<h${m[1].length}>${inline(m[2])}</h${m[1].length}>`)
@@ -140,11 +184,13 @@ export function renderMarkdown(md: string): string {
       out.push(`<ol>${buf.join('')}</ol>`)
       continue
     }
-    // paragraph: gather until blank line
+    // paragraph: gather until blank line (the zero-width sentinel counts as blank)
     const buf: string[] = []
-    while (i < lines.length && !/^\s*$/.test(lines[i]) && !/^(#{1,6}\s|```|\s*>|\s*[-*+]\s|\s*\d+\.\s)/.test(lines[i]))
+    while (i < lines.length && !/^[\s​]*$/.test(lines[i]) && !/^(#{1,6}\s|```|\s*>|\s*[-*+]\s|\s*\d+\.\s)/.test(lines[i]))
       buf.push(lines[i++])
-    out.push(`<p>${inline(buf.join(' '))}</p>`)
+    const content = inline(buf.join(' '))
+    // an image on its own line renders as a bare block <img> (no <p> line-box/margin under it)
+    out.push(/^<img\b[^>]*>$/.test(content) ? content : `<p>${content}</p>`)
   }
   return out.join('\n')
 }
