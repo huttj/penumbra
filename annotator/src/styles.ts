@@ -330,4 +330,48 @@ body.pen-panel-open .center { max-width: none !important; min-width: 0 !importan
 .pen-qchip { font-size: 12px; color: var(--pen-muted); background: var(--pen-chip); border: 1px solid var(--pen-border);
   border-radius: 12px; padding: 2px 8px; cursor: pointer; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pen-qchip:hover { border-color: var(--pen-accent); color: var(--pen-fg); }
+
+/* ---- mobile: dock comments + compose as a bottom sheet ---- */
+/* The sheet is fixed to the bottom (JS lifts it above the keyboard via
+   visualViewport). A scrollable body holds the comment/compose; the reaction
+   picker sits in a pinned footer. */
+.pen-sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 2147483646;
+  display: flex; flex-direction: column; max-height: 50vh;
+  background: var(--pen-bg); border-top: 1px solid var(--pen-border);
+  border-radius: 16px 16px 0 0; box-shadow: 0 -6px 30px rgba(0,0,0,.32);
+}
+.pen-sheet-head { position: relative; flex: 0 0 auto; height: 26px; }
+.pen-sheet-grab { width: 40px; height: 4px; border-radius: 3px; background: var(--pen-border); margin: 9px auto 0; }
+.pen-sheet-close {
+  position: absolute; top: 2px; right: 8px; width: 32px; height: 32px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-size: 15px; line-height: 1;
+  background: var(--pen-chip); border: 1px solid var(--pen-border); color: var(--pen-fg); cursor: pointer;
+}
+.pen-sheet-body { flex: 1 1 auto; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 0 6px 6px; }
+.pen-sheet-foot {
+  flex: 0 0 auto; border-top: 1px solid var(--pen-border);
+  padding: 8px 12px calc(8px + env(safe-area-inset-bottom, 0px));
+}
+/* the card/compose flow inside the sheet body (drop the floating geometry) */
+.pen-sheet .pen-card, .pen-sheet .pen-compose {
+  position: static; width: 100%; max-width: 100%; border: none; box-shadow: none;
+  border-radius: 0; padding: 0;
+}
+.pen-sheet .pen-card.focused { box-shadow: none; padding-bottom: 0; }
+.pen-sheet .pen-compose .pen-note-editor { max-height: none; margin-bottom: 0; }
+/* bigger comment images on mobile (the desktop 56px preview is too small to read) */
+.pen-sheet .pen-card .pen-md img { height: auto; max-height: 38vh; }
+/* save state back in flow (not floating over the text) */
+.pen-sheet .pen-card .pen-savestate { position: static; display: block; text-align: right; padding: 2px 12px 0; opacity: .5; }
+/* trash row in flow at the comment's bottom-right (the desktop -34px gutter is off-screen) */
+.pen-sheet .pen-card .pen-trashbox {
+  position: static; left: auto; top: auto; display: flex; flex-direction: row;
+  justify-content: flex-end; gap: 6px; padding: 4px 12px 2px;
+}
+/* roomier tap targets for the reaction picker in the footer */
+.pen-sheet-foot .pen-emojipanel .pen-emojibar { flex-wrap: wrap; gap: 6px; overflow: visible; }
+.pen-sheet-foot .pen-emojibar button { font-size: 21px; padding: 6px 10px; }
+.pen-sheet-foot .pen-emojigrid button { font-size: 23px; padding: 5px 6px; }
+.pen-sheet-foot .pen-emojigrid { max-height: 26vh; }
 `

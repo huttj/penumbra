@@ -88,6 +88,8 @@ export class Penumbra {
   private composeEditor?: MiniEditor
   private composeBlock?: Block
   private composeNew = false
+  private composeRoot?: HTMLElement
+  private selTimer: any = null
 
   private responsePanel?: ResponsePanelLike
   private reviewsPanel?: ReviewsPanel
@@ -142,8 +144,13 @@ export class Penumbra {
 
     document.addEventListener('mouseup', (e) => {
       if ((e.target as HTMLElement).closest('[data-pen-ui]')) return
-      setTimeout(() => this.onSelection(), 0)
+      this.scheduleSelection()
     })
+    // Touch selection (long-press) doesn't always emit a usable mouseup; mirror it.
+    document.addEventListener('touchend', (e) => {
+      if ((e.target as HTMLElement).closest('[data-pen-ui]')) return
+      this.scheduleSelection()
+    }, { passive: true })
     document.addEventListener('mousedown', (e) => this.onDocMouseDown(e))
     document.addEventListener('click', (e) => this.onDocClick(e))
     document.addEventListener('mousemove', (e) => this.onMouseMove(e), { passive: true })
@@ -153,6 +160,10 @@ export class Penumbra {
       else if (this.focused) { this.focused = null; this.renderAll() }
     })
     window.addEventListener('resize', () => this.queueRelayout(), { passive: true })
+    // When the on-screen keyboard opens/closes the visual viewport shrinks/grows —
+    // keep any open bottom sheet sitting just above the keyboard.
+    const vv = window.visualViewport
+    if (vv) { const onVV = () => this.repositionSheets(); vv.addEventListener('resize', onVV); vv.addEventListener('scroll', onVV) }
   }
 
   async reload() {
@@ -226,6 +237,9 @@ export class Penumbra {
   }
   private flushQuiet() { clearTimeout(this.quietTimer); void this.serializeAndSave() }
 
+  // Narrow viewports can't host the side rail; comments + compose dock to a
+  // bottom sheet and the left-margin reactions are hidden instead.
+  private isMobile = () => window.innerWidth <= 720
   private blockById = (id: string | null) => this.blocks.find((b) => b.id === id)
   private docY = (r: Range): number => r.getBoundingClientRect().top + window.scrollY
   // EVERY block with emoji shows its reactions as a cluster in the left margin.
@@ -248,8 +262,84 @@ export class Penumbra {
 
   private renderAll() {
     this.renderHighlights()
+    if (this.isMobile()) { this.layoutMobileSheet(); return }
     this.layoutRightRail()
     this.layoutLeftRail()
+  }
+
+  private scheduleSelection() {
+    clearTimeout(this.selTimer)
+    this.selTimer = setTimeout(() => this.onSelection(), 30)
+  }
+
+  // ---- mobile: dock the focused comment as a bottom sheet ------------------
+
+  // On a narrow screen the focused comment becomes a sheet pinned to the bottom
+  // (article visible above it). Reactions live in the sheet footer; the left
+  // margin reactions and right rail are suppressed (see layoutLeftRail/renderAll).
+  private layoutMobileSheet() {
+    this.railRO?.disconnect()
+    this.destroyCardEditor()
+    this.layer.querySelectorAll('.pen-card.rail, .pen-cardemoji, .pen-emote-stack, .pen-sheet').forEach((n) => n.remove())
+    this.cardEmojiRow = undefined
+    this.railEntries = []
+    if (!this.highlightsOn || this.responsePanel) return
+    const blk = this.blockById(this.focused)
+    if (!blk || !blk.ranges.length || !hasCommentText(blk.text)) return // emoji-only edits route through compose
+    const card = this.buildCard(blk, true)
+    const foot = document.createElement('div')
+    foot.className = 'pen-sheet-foot'; foot.setAttribute('data-pen-ui', '')
+    foot.appendChild(this.buildEmojiPanel(() => blk.emojis, (e) => this.toggleCardEmoji(blk, e, card)))
+    const sheet = this.wrapSheet(card, { onClose: () => { this.focused = null; this.renderAll() }, footer: foot })
+    this.layer.appendChild(sheet)
+    this.railEntries = [{ el: card, blk }]
+    this.positionSheet(sheet)
+    this.mountCardEditor(card, blk)
+  }
+
+  // A bottom-sheet shell: grabber + close header, a scrollable body holding the
+  // card/compose box, and an optional pinned footer (the reaction picker).
+  private wrapSheet(inner: HTMLElement, opts: { onClose: () => void; footer?: HTMLElement }): HTMLElement {
+    const sheet = document.createElement('div')
+    sheet.className = 'pen-sheet'; sheet.setAttribute('data-pen-ui', '')
+    const head = document.createElement('div')
+    head.className = 'pen-sheet-head'; head.innerHTML = '<div class="pen-sheet-grab"></div>'
+    const close = document.createElement('button')
+    close.className = 'pen-sheet-close'; close.setAttribute('aria-label', 'Close'); close.textContent = '✕'
+    close.addEventListener('click', (e) => { e.stopPropagation(); opts.onClose() })
+    head.appendChild(close)
+    const body = document.createElement('div')
+    body.className = 'pen-sheet-body'; body.appendChild(inner)
+    sheet.appendChild(head); sheet.appendChild(body)
+    if (opts.footer) sheet.appendChild(opts.footer)
+    return sheet
+  }
+
+  // Dock a sheet just above the on-screen keyboard, capping its height at half the
+  // available (above-keyboard) viewport so it always fits and scrolls internally.
+  private positionSheet(el: HTMLElement) {
+    const vv = window.visualViewport
+    if (!vv) { el.style.maxHeight = '50vh'; return }
+    const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop)
+    el.style.bottom = `${inset}px`
+    el.style.maxHeight = `${Math.round(Math.min(window.innerHeight * 0.5, vv.height - 12))}px`
+  }
+  private repositionSheets() {
+    this.layer.querySelectorAll<HTMLElement>('.pen-sheet').forEach((el) => this.positionSheet(el))
+  }
+
+  // Place a popover (compose / sign-in): a bottom sheet on mobile, else floated
+  // just below its anchor. Records composeRoot so teardown removes the wrapper.
+  private dockBox(box: HTMLElement, rect: DOMRect, onClose: () => void) {
+    if (this.isMobile()) {
+      const sheet = this.wrapSheet(box, { onClose })
+      this.layer.appendChild(sheet); this.composeRoot = sheet
+      this.positionSheet(sheet)
+    } else {
+      box.style.left = `${Math.min(window.scrollX + rect.left, window.scrollX + window.innerWidth - 372)}px`
+      box.style.top = `${window.scrollY + rect.bottom + 8}px`
+      this.layer.appendChild(box); this.composeRoot = box
+    }
   }
   private queueRelayout() {
     if (this.relayoutQueued) return
@@ -276,7 +366,7 @@ export class Penumbra {
   private layoutRightRail() {
     this.railRO?.disconnect()
     this.destroyCardEditor()
-    this.layer.querySelectorAll('.pen-card.rail, .pen-cardemoji').forEach((n) => n.remove())
+    this.layer.querySelectorAll('.pen-card.rail, .pen-cardemoji, .pen-sheet').forEach((n) => n.remove())
     this.cardEmojiRow = undefined
     this.railEntries = []
     if (!this.highlightsOn || this.responsePanel) return
@@ -321,7 +411,9 @@ export class Penumbra {
       onChange: (md) => { blk.text = md; blk.note = this.composeNote(blk.emojis, md); this.queueReposition(); this.saveQuiet(el) },
       uploadImage: (f) => this.api.uploadImage(f),
     })
-    this.cardEditor.focus()
+    // On mobile, leave the comment unfocused so opening the sheet reads (no keyboard
+    // pop); the reader taps into the text to edit. On desktop, focus immediately.
+    if (!this.isMobile()) this.cardEditor.focus()
   }
 
   private destroyCardEditor() {
@@ -340,6 +432,7 @@ export class Penumbra {
   // Pack cards by their anchor without rebuilding them — each card knows its own
   // height, and the focused one is pinned to its quote with neighbours flowing away.
   private repositionRail() {
+    if (this.isMobile()) return // the mobile sheet positions itself via positionSheet
     const entries = this.railEntries
     if (!entries.length) return
     const fi = entries.findIndex((e) => e.blk.id === this.focused)
@@ -366,7 +459,7 @@ export class Penumbra {
 
   private layoutLeftRail() {
     this.layer.querySelectorAll('.pen-emote-stack').forEach((n) => n.remove())
-    if (!this.highlightsOn || this.responsePanel) return
+    if (!this.highlightsOn || this.responsePanel || this.isMobile()) return
     const rootRect = this.root.getBoundingClientRect()
     // The cluster's right edge is pinned just left of the article (CSS translateX
     // -100%); it grows leftward, and the first emoji — pinned at that right edge —
@@ -529,11 +622,9 @@ export class Penumbra {
     const rect = anchor.getBoundingClientRect()
     const box = document.createElement('div')
     box.className = 'pen-compose'; box.setAttribute('data-pen-ui', '')
-    box.style.left = `${Math.min(window.scrollX + rect.left, window.scrollX + window.innerWidth - 372)}px`
-    box.style.top = `${window.scrollY + rect.bottom + 8}px`
     box.innerHTML = `<div class="pen-note-editor" data-note-editor></div><div data-emojislot></div>`
     box.querySelector('[data-emojislot]')!.appendChild(this.buildEmojiPanel(() => wb.emojis, (e) => this.toggleComposeEmoji(e)))
-    this.layer.appendChild(box)
+    this.dockBox(box, rect, () => this.dismissCompose())
     this.compose = box
     this.composeBlock = wb
     this.composeNew = !editBlk
@@ -595,12 +686,11 @@ export class Penumbra {
     const rect = range.getBoundingClientRect()
     const box = document.createElement('div')
     box.className = 'pen-compose'; box.setAttribute('data-pen-ui', '')
-    box.style.left = `${Math.min(window.scrollX + rect.left, window.scrollX + window.innerWidth - 372)}px`
-    box.style.top = `${window.scrollY + rect.bottom + 8}px`
     box.innerHTML = `<div class="pen-title" style="margin-bottom:8px">Sign in to comment on this.</div>
       <div class="pen-row"><span></span><button class="pen-btn" data-act="signin">Sign in</button></div>`
     box.querySelector('[data-act="signin"]')!.addEventListener('click', () => { this.dismissCompose(); this.flashLogin() })
-    this.layer.appendChild(box); this.compose = box
+    this.dockBox(box, rect, () => this.dismissCompose())
+    this.compose = box
   }
 
 
@@ -657,7 +747,8 @@ export class Penumbra {
     clearTimeout(this.quietTimer)
     this.composeEditor?.destroy(); this.composeEditor = undefined
     this.composeBlock = undefined; this.composeNew = false
-    this.compose?.remove(); this.compose = undefined; this.composeCtx = undefined
+    ;(this.composeRoot ?? this.compose)?.remove()
+    this.compose = undefined; this.composeRoot = undefined; this.composeCtx = undefined
   }
 
   // Commit the compose block if it's worth keeping (reaction or real comment text),
