@@ -72,7 +72,13 @@ export function pageResources(
   })
 
   const contentIndexPath = joinSegments(baseDir, "static/contentIndex.json")
-  const contentIndexScript = `const fetchData = fetch("${contentIndexPath}").then(data => data.json())`
+  // `fetchData` is a getter (not a one-time promise) so every reader — notably the
+  // explorer/sidebar, which rebuilds on each SPA nav — re-fetches the content index
+  // fresh instead of reusing a copy memoized at first page load. The fetch still
+  // honors the browser's HTTP cache (304-revalidates), so this stays cheap; it just
+  // means newly published pages show up on the next navigation, not only after a hard
+  // reload. The script is `spaPreserve`d, so the getter is defined once and survives.
+  const contentIndexScript = `Object.defineProperty(window, "fetchData", { configurable: true, get: () => fetch("${contentIndexPath}").then((data) => data.json()) })`
 
   const resources: StaticResources = {
     css: [
