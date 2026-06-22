@@ -1,3 +1,15 @@
 @use "./variables.scss" as *;
 
-// put your custom CSS here!
+// Search results show only the file title, so same-named files (e.g. dated notes)
+// in different folders are indistinguishable. Each result card carries its slug as
+// `id`, so surface the path as a small breadcrumb above the title. Scoped to nested
+// files (`id*="/"`) so root-level pages don't get a redundant line.
+.results-container .result-card[id*="/"]::before {
+  content: attr(id);
+  display: block;
+  font-size: 0.72rem;
+  line-height: 1.2;
+  color: var(--gray);
+  text-transform: capitalize;
+  margin-bottom: 0.15rem;
+}
