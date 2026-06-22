@@ -4,6 +4,7 @@ import {
   quotePiecesFromRange, resolveImageQuote, resolveNthQuote,
 } from './anchor'
 import { extractBlockquotes, hasCommentText, parseResponse, renderMarkdown, serializeResponse, splitLeadingEmojis } from './markdown'
+import { syncImageOverlays } from './overlay'
 import { ReviewsPanel } from './response'
 
 // The rich-text editor (TipTap, ~600KB) is loaded on demand from a separate
@@ -408,25 +409,13 @@ export class Penumbra {
   // none, so clicks fall through to the <img> and reach the normal block/compose
   // handlers — same hit-testing as a text highlight.
   private renderImageOverlays() {
-    this.layer.querySelectorAll('.pen-imghl').forEach((n) => n.remove())
-    if (!this.highlightsOn || this.responsePanel) return
+    if (!this.highlightsOn || this.responsePanel) { syncImageOverlays(this.layer, []); return } // panel owns its own overlays
     const activeId = this.hovered ?? this.focused
+    const items: { img: HTMLImageElement; variant?: string }[] = []
     for (const b of this.blocks)
-      for (const img of b.imgs) this.addImageOverlay(img, b.id === activeId ? 'active' : '')
-    for (const img of this.composeCtx?.imgs ?? []) this.addImageOverlay(img, 'draft')
-  }
-
-  private addImageOverlay(img: HTMLImageElement, variant: string) {
-    const rect = img.getBoundingClientRect()
-    if (!rect.width || !rect.height) return
-    const d = document.createElement('div')
-    d.className = 'pen-imghl' + (variant ? ' ' + variant : '')
-    d.setAttribute('data-pen-ui', '')
-    d.style.left = `${window.scrollX + rect.left}px`
-    d.style.top = `${window.scrollY + rect.top}px`
-    d.style.width = `${rect.width}px`
-    d.style.height = `${rect.height}px`
-    this.layer.appendChild(d)
+      for (const img of b.imgs) items.push({ img, variant: b.id === activeId ? 'active' : undefined })
+    for (const img of this.composeCtx?.imgs ?? []) items.push({ img, variant: 'draft' })
+    syncImageOverlays(this.layer, items)
   }
 
   private layoutRightRail() {
@@ -556,7 +545,12 @@ export class Penumbra {
     card.className = `pen-card rail ${expanded ? 'focused' : 'compact'}`
     card.setAttribute('data-pen-ui', ''); card.dataset.blockId = blk.id
 
-    const quoteHtml = blk.quotes.map((q) => `<div class="pen-quote">${esc(q)}</div>`).join('')
+    const quoteHtml = blk.quotes.map((q) => {
+      const src = imageSrcOf(q)
+      return src
+        ? `<div class="pen-quote pen-quote-img"><img src="${esc(src)}" alt=""></div>`
+        : `<div class="pen-quote">${esc(q)}</div>`
+    }).join('')
     if (!expanded) {
       const noteHtml = hasCommentText(blk.text)
         ? `<div class="pen-md">${renderMarkdown(blk.text)}</div>`
@@ -918,6 +912,7 @@ export class Penumbra {
     if (this.responsePanel) return // a double-click already opened it while loading
     this.destroyCardEditor()
     this.layer.querySelectorAll('.pen-card.rail, .pen-emote-stack').forEach((n) => n.remove())
+    syncImageOverlays(this.layer, []) // drop our on-page image boxes; the panel draws its own
     this.responsePanel = new RP({
       api: this.api, root: this.root, source: this.source, commitSha: this.commitSha, userName: this.user.name ?? 'you',
       onClose: () => {

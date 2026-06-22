@@ -2,8 +2,9 @@
 // on demand the first time the response panel is opened, so readers who never
 // write a response don't pay for ~600KB of editor code.
 import { Api } from './api'
-import { locateText, occurrenceOf, resolveNthQuote, selectorsFromRange, sourceText } from './anchor'
+import { locateText, occurrenceOf, resolveImageQuote, resolveNthQuote, selectorsFromRange, sourceText } from './anchor'
 import { formatQuoteMarker, parseQuoteMarker } from './markdown'
+import { syncImageOverlays } from './overlay'
 import { Editor, Extension } from '@tiptap/core'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
@@ -181,6 +182,7 @@ export class ResponsePanel {
   private onClose: () => void
 
   private el!: HTMLElement
+  private overlayLayer!: HTMLElement
   private editor!: Editor
   private body = ''
   private saveTimer: any = null
@@ -206,6 +208,8 @@ export class ResponsePanel {
     this.el.style.height = `${vv.height}px`
     this.el.style.bottom = 'auto'
   }
+  // A resize reflows the source column → image overlay boxes need re-placing.
+  private onResize = () => this.renderQuoteHighlights()
 
   // Peek: collapse the full-screen editor to a bottom bar so the reader can select
   // text in the page behind it. The page's "Quote" button then appends to the
@@ -243,9 +247,11 @@ export class ResponsePanel {
     document.removeEventListener('click', this.onSourceClick)
     window.visualViewport?.removeEventListener('resize', this.onViewport)
     window.visualViewport?.removeEventListener('scroll', this.onViewport)
+    window.removeEventListener('resize', this.onResize)
     this.flushSave()
     if (HL) { const h = (window as any).CSS.highlights; h.delete('penumbra-quote'); h.delete('penumbra-quote-active') }
     this.editor?.destroy()
+    this.overlayLayer?.remove()
     this.el?.remove()
     document.body.classList.remove('pen-panel-open')
     this.onClose()
@@ -270,6 +276,13 @@ export class ResponsePanel {
       <div class="pen-editor" data-editor></div>`
     document.body.appendChild(el)
     this.el = el
+    // Document-anchored layer for image highlight boxes (the panel's analogue of
+    // the core UI's overlay layer; images can't be painted by the Highlight API).
+    this.overlayLayer = document.createElement('div')
+    this.overlayLayer.setAttribute('data-pen-ui', '')
+    this.overlayLayer.style.cssText = 'position:absolute;top:0;left:0;width:0;height:0;'
+    document.body.appendChild(this.overlayLayer)
+    window.addEventListener('resize', this.onResize, { passive: true })
     document.body.classList.add('pen-panel-open')
     if (this.isMobile()) {
       this.onViewport()
@@ -416,21 +429,56 @@ export class ResponsePanel {
 
   // The editor's quotes (text + occurrence index), in document order — the
   // canonical list shared by the source ranges, DOM blockquotes, and doc nodes.
+  // A blockquote can now interleave text runs and images. Its FIRST text run is the
+  // anchor used for hit-testing/amplify (a stable, resolvable handle); the full set
+  // of text runs and images is what gets highlighted (see quoteTargets).
+  private firstTextRun(node: any): string {
+    let t = ''
+    node.forEach((child: any) => { if (!t && child.type.name !== 'image') t = child.textContent.trim() })
+    return t
+  }
   private quoteAnchors(): { text: string; nth: number }[] {
     const out: { text: string; nth: number }[] = []
     this.editor.state.doc.forEach((node) => {
-      if (node.type.name === 'blockquote') out.push({ text: node.textContent, nth: node.attrs.nth ?? 1 })
+      if (node.type.name === 'blockquote') out.push({ text: this.firstTextRun(node), nth: node.attrs.nth ?? 1 })
     })
     return out
   }
   private rangeForAnchor(a: { text: string; nth: number } | null): Range | null {
     return a && a.text.trim().length >= MIN_QUOTE ? resolveNthQuote(a.text.trim(), a.nth, this.root) : null
   }
+  // Every highlightable target across all blockquotes: text runs (resolved to source
+  // ranges) and images (resolved to <img> elements for overlay boxes). The owning
+  // blockquote's occurrence index pins its first text run; the rest default to 1.
+  private quoteTargets(): { ranges: Range[]; imgs: HTMLImageElement[] } {
+    const ranges: Range[] = []
+    const imgs: HTMLImageElement[] = []
+    this.editor.state.doc.forEach((node) => {
+      if (node.type.name !== 'blockquote') return
+      const nth = node.attrs.nth ?? 1
+      let first = true
+      node.forEach((child: any) => {
+        if (child.type.name === 'image') {
+          const el = child.attrs.src ? resolveImageQuote(`![](${child.attrs.src})`, 1, this.root) : null
+          if (el) imgs.push(el)
+        } else {
+          const t = child.textContent.trim()
+          if (t.length >= MIN_QUOTE) {
+            const r = resolveNthQuote(t, first ? nth : 1, this.root)
+            if (r) ranges.push(r)
+            first = false
+          }
+        }
+      })
+    })
+    return { ranges, imgs }
+  }
   private renderQuoteHighlights() {
     if (!HL) return
-    const ranges = this.quoteAnchors().map((a) => this.rangeForAnchor(a)).filter(Boolean) as Range[]
+    const { ranges, imgs } = this.quoteTargets()
     const h = (window as any).CSS.highlights
     if (ranges.length) h.set('penumbra-quote', new (globalThis as any).Highlight(...ranges)); else h.delete('penumbra-quote')
+    if (this.overlayLayer) syncImageOverlays(this.overlayLayer, imgs.map((img) => ({ img })))
   }
   // Emphasize the source quote at OR before the cursor: if the cursor sits in a
   // blockquote, that one; otherwise the nearest blockquote above it.
@@ -438,7 +486,7 @@ export class ResponsePanel {
     const pos = this.editor.state.selection.from
     let hit: { text: string; nth: number } | null = null
     this.editor.state.doc.forEach((node, offset) => {
-      if (node.type.name === 'blockquote' && offset <= pos) hit = { text: node.textContent.trim(), nth: node.attrs.nth ?? 1 }
+      if (node.type.name === 'blockquote' && offset <= pos) hit = { text: this.firstTextRun(node), nth: node.attrs.nth ?? 1 }
     })
     this.amplifyAnchor(hit)
   }

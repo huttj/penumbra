@@ -78,6 +78,9 @@ export const CSS = `
 }
 /* clamp only in the compact card; expanded shows everything */
 .pen-card.compact .pen-quote { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+/* an image quote piece shows the image itself (small preview), not its markdown */
+.pen-quote-img { padding: 4px; }
+.pen-quote-img img { display: block; height: 64px; width: auto; max-width: 100%; border-radius: 5px; margin: 0; }
 .pen-muted { color: var(--pen-muted); font-style: italic; }
 /* images in a margin card are small fixed-height previews (full size lives in the
    editor); the fixed height also keeps card measurement stable so they don't overlap */
@@ -251,6 +254,8 @@ body.pen-panel-open .center { max-width: none !important; min-width: 0 !importan
   color: var(--pen-muted); background: rgba(185,119,10,.09); border-radius: 0 5px 5px 0;
   transition: background .12s ease, box-shadow .12s ease, border-color .12s ease; }
 .pen-prose blockquote p { margin: .15em 0; }
+/* an in-quote image is a tidy block, not a big gap (it's a TipTap block node) */
+.pen-prose blockquote img { display: block; max-width: 100%; border-radius: 5px; margin: .3em 0; }
 .pen-prose blockquote.pen-bq-active { background: rgba(185,119,10,.20);
   box-shadow: inset 4px 0 0 var(--pen-accent), 0 0 0 2px rgba(185,119,10,.42); }
 /* quote that won't anchor (text not in source, OR too short) → cool teal, no picker */
