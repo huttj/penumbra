@@ -80,7 +80,8 @@ export const CSS = `
 .pen-card.compact .pen-quote { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 /* an image quote piece shows the image itself (small preview), not its markdown */
 .pen-quote-img { padding: 4px 8px; }
-.pen-quote-img img { display: block; height: 64px; width: auto; max-width: calc(100% - 4px); border-radius: 5px; margin: 0; }
+/* fit within a height AND width cap with auto on both axes → never distorts */
+.pen-quote-img img { display: block; max-height: 80px; max-width: 100%; width: auto; height: auto; border-radius: 5px; margin: 0; }
 .pen-muted { color: var(--pen-muted); font-style: italic; }
 /* images in a margin card are small fixed-height previews (full size lives in the
    editor); the fixed height also keeps card measurement stable so they don't overlap */
@@ -257,6 +258,11 @@ body.pen-panel-open .center { max-width: none !important; min-width: 0 !importan
 /* an in-quote image is inline (cursor can sit on either side); cap its size so it
    sits in the text flow rather than blowing the quote open */
 .pen-prose img { max-width: 100%; max-height: 260px; width: auto; border-radius: 5px; vertical-align: middle; }
+/* selecting an in-quote image reveals its markdown source (so it reads/edits/deletes
+   like text); otherwise it shows the picture */
+.pen-img-node.selected { font-family: var(--codeFont, ui-monospace, SFMono-Regular, monospace);
+  font-size: .85em; color: var(--pen-muted); word-break: break-all; white-space: pre-wrap;
+  background: rgba(185,119,10,.10); border-radius: 4px; padding: 1px 4px; }
 .pen-prose blockquote.pen-bq-active { background: rgba(185,119,10,.20);
   box-shadow: inset 4px 0 0 var(--pen-accent), 0 0 0 2px rgba(185,119,10,.42); }
 /* quote that won't anchor (text not in source, OR too short) → cool teal, no picker */

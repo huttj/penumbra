@@ -91,6 +91,46 @@ const QuoteBlock = Blockquote.extend({
     return { nth: { default: 1, rendered: false } }
   },
 })
+
+// An image that renders as the picture, but reveals its `![](src)` source when the
+// cursor selects it (click / arrow onto it) — so it can be read, edited, or deleted
+// as plain text the way Obsidian's source mode does, instead of being a cursor-
+// trapping atom. Display-only: the node type is unchanged, so save/anchor logic is
+// untouched.
+const SourceToggleImage = Image.extend({
+  addNodeView() {
+    return ({ node }) => {
+      let current = node
+      const dom = document.createElement("div")
+      dom.className = "pen-img-node"
+      const render = (selected: boolean) => {
+        dom.classList.toggle("selected", selected)
+        const src = (current.attrs as any).src ?? ""
+        if (selected) {
+          dom.textContent = `![](${src})`
+        } else {
+          dom.textContent = ""
+          const img = document.createElement("img")
+          img.src = src
+          dom.appendChild(img)
+        }
+      }
+      render(false)
+      return {
+        dom,
+        update: (newNode: any) => {
+          if (newNode.type !== current.type) return false
+          current = newNode
+          render(dom.classList.contains("selected"))
+          return true
+        },
+        selectNode: () => render(true),
+        deselectNode: () => render(false),
+        ignoreMutation: () => true,
+      }
+    }
+  },
+})
 // Strip `>N ` markers to plain `> ` before the editor parses (markdown-it doesn't
 // know our convention); return the occurrence per blockquote in document order.
 function stripQuoteMarkers(body: string): { clean: string; nths: number[] } {
@@ -320,7 +360,7 @@ export class ResponsePanel {
         KeepBlankParagraphs,
         QuoteBlock,
         Link.configure({ openOnClick: false, autolink: true, HTMLAttributes: { target: '_blank', rel: 'noopener' } }),
-        Image.configure({ inline: false }), // block image; inline trapped the cursor and leaked note text into the quote
+        SourceToggleImage.configure({ inline: false }), // shows ![](src) source when selected
         Markdown.configure({ html: false, linkify: true, breaks: true, transformPastedText: true }),
         BqHighlight,
       ],
@@ -661,7 +701,7 @@ export function createMiniEditor(mount: HTMLElement, markdown: string, opts: { o
       StarterKit.configure({ paragraph: false }),
       KeepBlankParagraphs,
       Link.configure({ openOnClick: false, autolink: true, HTMLAttributes: { target: '_blank', rel: 'noopener' } }),
-      Image.configure({ inline: false }),
+      SourceToggleImage.configure({ inline: false }),
       Markdown.configure({ html: false, linkify: true, breaks: true, transformPastedText: true }),
     ],
     content: markdown,
