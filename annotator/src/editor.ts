@@ -103,7 +103,7 @@ const SourceToggleImage = Image.extend({
     return ({ node, getPos, editor }) => {
       let current = node
       let editing = false
-      const dom = document.createElement("div")
+      const dom = document.createElement("span") // inline node → inline host
       dom.className = "pen-img-node"
 
       const showImage = () => {
@@ -392,7 +392,7 @@ export class ResponsePanel {
         KeepBlankParagraphs,
         QuoteBlock,
         Link.configure({ openOnClick: false, autolink: true, HTMLAttributes: { target: '_blank', rel: 'noopener' } }),
-        SourceToggleImage.configure({ inline: false }), // shows ![](src) source when selected
+        SourceToggleImage.configure({ inline: true }), // shows ![](src) source when selected
         Markdown.configure({ html: false, linkify: true, breaks: true, transformPastedText: true }),
         BqHighlight,
       ],
@@ -733,7 +733,7 @@ export function createMiniEditor(mount: HTMLElement, markdown: string, opts: { o
       StarterKit.configure({ paragraph: false }),
       KeepBlankParagraphs,
       Link.configure({ openOnClick: false, autolink: true, HTMLAttributes: { target: '_blank', rel: 'noopener' } }),
-      SourceToggleImage.configure({ inline: false }),
+      SourceToggleImage.configure({ inline: true }),
       Markdown.configure({ html: false, linkify: true, breaks: true, transformPastedText: true }),
     ],
     content: markdown,
