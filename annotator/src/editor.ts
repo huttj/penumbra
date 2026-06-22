@@ -92,43 +92,35 @@ const QuoteBlock = Blockquote.extend({
   },
 })
 
-// An image that renders as the picture, but reveals its `![](src)` source when the
-// cursor selects it (click / arrow onto it) — so it can be read, edited, or deleted
-// as plain text the way Obsidian's source mode does, instead of being a cursor-
-// trapping atom. Display-only: the node type is unchanged, so save/anchor logic is
-// untouched.
+// Clicking an in-quote image swaps the (cursor-trapping, atom) image node for a
+// paragraph holding its `![](src)` markdown as REAL, editable text — so it can be
+// read, edited, or deleted like any text, Obsidian source-mode style. It renders
+// back to a picture on save/reload (tiptap-markdown reparses `![](src)`), and
+// collapseQuoteBlocks keeps the saved markdown clean.
 const SourceToggleImage = Image.extend({
-  addNodeView() {
-    return ({ node }) => {
-      let current = node
-      const dom = document.createElement("div")
-      dom.className = "pen-img-node"
-      const render = (selected: boolean) => {
-        dom.classList.toggle("selected", selected)
-        const src = (current.attrs as any).src ?? ""
-        if (selected) {
-          dom.textContent = `![](${src})`
-        } else {
-          dom.textContent = ""
-          const img = document.createElement("img")
-          img.src = src
-          dom.appendChild(img)
-        }
-      }
-      render(false)
-      return {
-        dom,
-        update: (newNode: any) => {
-          if (newNode.type !== current.type) return false
-          current = newNode
-          render(dom.classList.contains("selected"))
-          return true
+  addProseMirrorPlugins() {
+    const parent = this.parent?.() ?? []
+    return [
+      ...parent,
+      new Plugin({
+        props: {
+          handleClickOn(view, _pos, node, nodePos) {
+            if (node.type.name !== "image") return false
+            const paragraph = view.state.schema.nodes.paragraph
+            if (!paragraph) return false
+            const text = `![](${(node.attrs as any).src ?? ""})`
+            const tr = view.state.tr.replaceWith(
+              nodePos,
+              nodePos + node.nodeSize,
+              paragraph.create(null, view.state.schema.text(text)),
+            )
+            // Cursor at the end of the freshly-inserted source text.
+            view.dispatch(tr.setSelection(TextSelection.create(tr.doc, nodePos + 1 + text.length)).scrollIntoView())
+            return true
+          },
         },
-        selectNode: () => render(true),
-        deselectNode: () => render(false),
-        ignoreMutation: () => true,
-      }
-    }
+      }),
+    ]
   },
 })
 // Strip `>N ` markers to plain `> ` before the editor parses (markdown-it doesn't
