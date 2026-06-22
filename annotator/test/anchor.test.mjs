@@ -182,6 +182,15 @@ function rangeOver(text, needle, occurrence = 0) {
      blocks[0].quotes[2] === 'Between the pictures.' &&
      blocks[0].note.trim() === 'A comment.')
 
+  // Editor-mangled data (blank '>' lines, trailing '\', zero-width sentinel) still
+  // parses to clean pieces.
+  const mangled = parseResponse('> textA\n>\n> ![](src.png)\\\n> textC\n\nnote\n')
+  ok('tolerates editor-mangled composite quotes',
+     mangled.blocks[0].quotes.length === 3 &&
+     mangled.blocks[0].quotes[0] === 'textA' &&
+     mangled.blocks[0].quotes[1] === '![](src.png)' &&
+     mangled.blocks[0].quotes[2] === 'textC')
+
   // An OLD own-line composite (image on its own '>' line) also parses to pieces.
   const ownLine = parseResponse('> textA\n> ![](src.png)\n> textC\n\nnote\n')
   ok('own-line composite parses into pieces too',

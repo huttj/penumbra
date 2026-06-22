@@ -77,7 +77,10 @@ export function parseResponse(md: string): { preamble: string; blocks: RBlock[] 
     const qlines: { text: string; nth: number }[] = []
     while (i < lines.length && isQ(lines[i])) {
       const pm = parseQuoteMarker(lines[i])
-      if (pm.text.trim()) qlines.push({ text: pm.text.trim(), nth: pm.nth })
+      // Tolerate editor-mangled lines: trailing `\` hard-breaks and the zero-width
+      // sentinel that older saves left inside quotes.
+      const text = pm.text.replace(/\\\s*$/, '').replace(/​/g, '').trim()
+      if (text) qlines.push({ text, nth: pm.nth })
       i++
     }
     const note: string[] = []

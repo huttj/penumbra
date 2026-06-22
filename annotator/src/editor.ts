@@ -116,9 +116,32 @@ function applyQuoteNths(editor: Editor, nths: number[]): void {
   })
   if (changed) editor.view.dispatch(tr.setMeta('addToHistory', false))
 }
+// TipTap serializes an image NODE inside a blockquote with blank `>` lines and
+// stray `\` hard-breaks, which corrupts the quote. Collapse every blockquote run
+// back to ONE clean line (text + inline `![](src)`), dropping blank lines, the
+// zero-width sentinel, and trailing backslashes. Runs on marker-free getMarkdown
+// output (the `>N` index is re-applied afterwards from node attrs).
+function collapseQuoteBlocks(md: string): string {
+  const lines = md.split('\n')
+  const out: string[] = []
+  let i = 0
+  while (i < lines.length) {
+    if (/^\s*>/.test(lines[i])) {
+      const parts: string[] = []
+      while (i < lines.length && /^\s*>/.test(lines[i])) {
+        const t = lines[i].replace(/^\s*>\s?/, '').replace(/\\\s*$/, '').replace(/​/g, '').trim()
+        if (t) parts.push(t)
+        i++
+      }
+      if (parts.length) out.push('> ' + parts.join(' '))
+    } else { out.push(lines[i]); i++ }
+  }
+  return out.join('\n')
+}
+
 // getMarkdown, then re-encode each blockquote's occurrence index as `>N `.
 function getMd(editor: Editor): string {
-  const md = (editor.storage as any).markdown.getMarkdown()
+  const md = collapseQuoteBlocks((editor.storage as any).markdown.getMarkdown())
   const nths: number[] = []
   editor.state.doc.forEach((node) => { if (node.type.name === 'blockquote') nths.push(node.attrs.nth ?? 1) })
   if (!nths.some((n) => n > 1)) return md
@@ -297,7 +320,7 @@ export class ResponsePanel {
         KeepBlankParagraphs,
         QuoteBlock,
         Link.configure({ openOnClick: false, autolink: true, HTMLAttributes: { target: '_blank', rel: 'noopener' } }),
-        Image.configure({ inline: true }), // inline so the cursor can sit on either side of an in-quote image
+        Image.configure({ inline: false }), // block image; inline trapped the cursor and leaked note text into the quote
         Markdown.configure({ html: false, linkify: true, breaks: true, transformPastedText: true }),
         BqHighlight,
       ],
