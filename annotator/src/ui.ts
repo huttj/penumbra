@@ -1,7 +1,7 @@
 import { Api, type User } from './api'
 import {
-  imageOccurrence, imageQuoteFromImg, imageSrcOf, imagesInRange, locateText, occurrenceOf,
-  resolveImageQuote, resolveNthQuote, selectorsFromRange,
+  imageOccurrence, imageQuoteFromImg, imageSrcOf, imagesInRange, locateText,
+  quotePiecesFromRange, resolveImageQuote, resolveNthQuote,
 } from './anchor'
 import { extractBlockquotes, hasCommentText, parseResponse, renderMarkdown, serializeResponse, splitLeadingEmojis } from './markdown'
 import { ReviewsPanel } from './response'
@@ -672,16 +672,17 @@ export class Penumbra {
   // selection (range) and for editing an existing block (editBlk).
   private async openCompose(range: Range | null, editBlk?: Block, img?: HTMLImageElement) {
     if (!this.user) { if (range) this.promptSignIn(range); return }
-    let quote = ''
-    let nth = 1
+    let quotes: string[] = []
+    let nths: number[] = []
     let imgs: HTMLImageElement[] = []
-    if (editBlk) { quote = editBlk.quotes[0] ?? ''; imgs = editBlk.imgs }
-    else if (img) { quote = imageQuoteFromImg(img); nth = imageOccurrence(img, this.root); imgs = [img] }
+    if (editBlk) { quotes = editBlk.quotes; nths = editBlk.nths; imgs = editBlk.imgs }
+    else if (img) { quotes = [imageQuoteFromImg(img)]; nths = [imageOccurrence(img, this.root)]; imgs = [img] }
     else if (range) {
-      quote = (selectorsFromRange(range, this.root)?.find((s: any) => s.type === 'TextQuoteSelector') as any)?.exact ?? ''
-      nth = occurrenceOf(range, this.root)
-      imgs = imagesInRange(range, this.root) // a passage can sweep up images
+      const pieces = quotePiecesFromRange(range, this.root) // text runs + images, in order
+      if (pieces) { quotes = pieces.quotes; nths = pieces.nths }
+      imgs = imagesInRange(range, this.root)
     }
+    const quote = quotes[0] ?? ''
     if (!quote) return
     const anchor = range ?? editBlk?.ranges[0] ?? null
     if (!anchor) return
@@ -689,8 +690,8 @@ export class Penumbra {
 
     // The block being edited; for a fresh selection, a detached one we only graft
     // into the doc once it has content (on autosave or emoji pick). The occurrence
-    // index pins this quote to the instance the reader actually selected.
-    const wb: Block = editBlk ?? { id: `b${this.blocks.length}`, quotes: [quote], nths: [nth], note: '', emojis: [], text: '', ranges: [range!.cloneRange()], imgs }
+    // index pins each quote piece to the instance the reader actually selected.
+    const wb: Block = editBlk ?? { id: `b${this.blocks.length}`, quotes, nths, note: '', emojis: [], text: '', ranges: [range!.cloneRange()], imgs }
 
     const rect = anchor.getBoundingClientRect()
     const box = document.createElement('div')

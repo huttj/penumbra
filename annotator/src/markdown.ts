@@ -42,6 +42,8 @@ export function extractBlockquotes(md: string): string[] {
 export type RBlock = { quotes: string[]; nths: number[]; note: string }
 
 const isQ = (l: string | undefined) => /^\s*>/.test(l ?? '')
+// A quote line that is itself a markdown image embed: `![](src)`.
+const isImageLine = (t: string) => /^!\[[^\]]*\]\([^)\s]+\)$/.test(t.trim())
 
 // Parse a response doc into a leading preamble + a sequence of quote-blocks.
 // Each quote is its own block and owns the prose below it until the next quote
@@ -54,11 +56,10 @@ export function parseResponse(md: string): { preamble: string; blocks: RBlock[] 
 
   const blocks: RBlock[] = []
   while (i < lines.length) {
-    const q: string[] = []
-    let nth = 1
+    const qlines: { text: string; nth: number }[] = []
     while (i < lines.length && isQ(lines[i])) {
-      if (!q.length) { const pm = parseQuoteMarker(lines[i]); nth = pm.nth; q.push(pm.text) }
-      else q.push(lines[i].replace(/^\s*>\s?/, ''))
+      const pm = parseQuoteMarker(lines[i])
+      if (pm.text.trim()) qlines.push({ text: pm.text.trim(), nth: pm.nth })
       i++
     }
     const note: string[] = []
@@ -67,7 +68,16 @@ export function parseResponse(md: string): { preamble: string; blocks: RBlock[] 
     // (incl. the zero-width sentinel) — comments never keep trailing blanks now.
     while (note.length && note[0].trim() === '') note.shift()
     while (note.length && note[note.length - 1].replace(/​/g, '').trim() === '') note.pop()
-    blocks.push({ quotes: [q.join(' ').trim()], nths: [nth], note: note.join('\n') })
+    // A blockquote with an image becomes ordered pieces (text runs + `![](src)`),
+    // so the image keeps its place. A pure-text blockquote stays one quote (the
+    // long-standing behavior — joined into a single passage).
+    let quotes: string[] = []
+    let nths: number[] = []
+    if (qlines.length) {
+      if (qlines.some((l) => isImageLine(l.text))) { quotes = qlines.map((l) => l.text); nths = qlines.map((l) => l.nth) }
+      else { quotes = [qlines.map((l) => l.text).join(' ')]; nths = [qlines[0].nth] }
+    }
+    blocks.push({ quotes, nths, note: note.join('\n') })
   }
   return { preamble: preamble.join('\n').trim(), blocks }
 }
@@ -79,7 +89,12 @@ export function serializeResponse(preamble: string, blocks: RBlock[]): string {
   for (const b of blocks) {
     const note = b.note.replace(/^\n+/, '').replace(/[\s​]+$/, '') // drop leading + trailing blanks
     if (!b.quotes.join('').trim() && !note.trim()) continue
-    const qs = b.quotes.map((q, k) => formatQuoteMarker(b.nths?.[k] ?? 1, q.replace(/\n/g, ' '))).join('\n>\n')
+    // One '>' line per quote piece (consecutive lines = one block); drop empty pieces.
+    const qs = b.quotes
+      .map((q, k) => ({ q: (q ?? '').replace(/\n/g, ' '), n: b.nths?.[k] ?? 1 }))
+      .filter((e) => e.q.trim())
+      .map((e) => formatQuoteMarker(e.n, e.q))
+      .join('\n')
     blockStrs.push(note ? `${qs}\n\n${note}` : qs)
   }
   const blockBody = blockStrs.join('\n\n\n') // '\n\n\n' = one extra blank line before quotes 2..n

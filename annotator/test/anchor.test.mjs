@@ -19,7 +19,7 @@ globalThis.document = dom.window.document
 globalThis.Node = dom.window.Node
 globalThis.NodeFilter = dom.window.NodeFilter
 
-const { selectorsFromRange, rangeFromSelectors, imageSrcOf, imageBasename, resolveImageQuote, imageOccurrence, imagesInRange } =
+const { selectorsFromRange, rangeFromSelectors, imageSrcOf, imageBasename, resolveImageQuote, imageOccurrence, imagesInRange, quotePiecesFromRange } =
   await import('./.tmp/anchor.mjs')
 const root = document.querySelector('article')
 
@@ -117,10 +117,69 @@ function rangeOver(text, needle, occurrence = 0) {
   ok('imagesInRange catches the image inside a text passage',
      caught.length === 1 && caught[0] === iroot.querySelectorAll('img')[0])
 
+  // A passage spanning text → image → text decomposes into three ordered pieces.
+  const r3 = idom.window.document.createRange()
+  const ps = iroot.querySelectorAll('p')
+  r3.setStart(ps[0].firstChild, 0)
+  r3.setEnd(ps[2].firstChild, 'Between the pictures.'.length)
+  const pieces = quotePiecesFromRange(r3, iroot)
+  ok('decomposes passage into text/image/text in order',
+     pieces && pieces.quotes.length === 3 &&
+     pieces.quotes[0] === 'Before the picture.' &&
+     imageSrcOf(pieces.quotes[1]) !== null &&
+     pieces.quotes[2] === 'Between the pictures.')
+
+  // A plain text passage (no image) is a single piece, like the old path.
+  const r4 = idom.window.document.createRange()
+  r4.setStart(ps[2].firstChild, 0)
+  r4.setEnd(ps[2].firstChild, 'Between the pictures.'.length)
+  const plain = quotePiecesFromRange(r4, iroot)
+  ok('plain passage stays a single text piece',
+     plain && plain.quotes.length === 1 && plain.quotes[0] === 'Between the pictures.')
+
   // restore the text-test globals for any later additions
   globalThis.document = dom.window.document
   globalThis.Node = dom.window.Node
   globalThis.NodeFilter = dom.window.NodeFilter
+}
+
+// ---- markdown round-trip (response doc) ------------------------------------
+{
+  const mout = await esbuild.build({
+    entryPoints: ['src/markdown.ts'], bundle: true, format: 'esm', write: false, target: 'es2021',
+  })
+  writeFileSync('test/.tmp/markdown.mjs', mout.outputFiles[0].text)
+  const { parseResponse, serializeResponse } = await import('./.tmp/markdown.mjs')
+
+  // A composite block: text → image → text, plus a note. Must survive round-trip.
+  const block = { quotes: ['Before the picture.', '![](a/img.png)', 'Between the pictures.'], nths: [1, 2, 1], note: 'A comment.' }
+  const md = serializeResponse('', [block])
+  ok('serializes each piece as its own > line (image keeps its occurrence marker)',
+     md.includes('> Before the picture.') && md.includes('>2 ![](a/img.png)') && md.includes('> Between the pictures.'))
+  const { blocks } = parseResponse(md)
+  ok('round-trips a 3-piece composite block',
+     blocks.length === 1 && blocks[0].quotes.length === 3 &&
+     blocks[0].quotes[0] === 'Before the picture.' &&
+     blocks[0].quotes[1] === '![](a/img.png)' &&
+     blocks[0].quotes[2] === 'Between the pictures.' &&
+     blocks[0].nths[1] === 2 && blocks[0].note.trim() === 'A comment.')
+
+  // A plain single-quote block still parses to one piece (no regression).
+  const plain = parseResponse('> just one quote\n\nthe note\n')
+  ok('plain single-quote block unchanged',
+     plain.blocks.length === 1 && plain.blocks[0].quotes.length === 1 &&
+     plain.blocks[0].quotes[0] === 'just one quote' && plain.blocks[0].note.trim() === 'the note')
+
+  // A pure-text multi-line blockquote (no image) still joins into ONE quote.
+  const multi = parseResponse('> line one\n> line two\n\nthe note\n')
+  ok('pure-text multi-line blockquote joins into one quote',
+     multi.blocks.length === 1 && multi.blocks[0].quotes.length === 1 &&
+     multi.blocks[0].quotes[0] === 'line one line two')
+
+  // Two back-to-back single quotes separated by a note stay two blocks.
+  const two = parseResponse('> first\n\nnote one\n\n> second\n\nnote two\n')
+  ok('separate quotes with notes stay separate blocks',
+     two.blocks.length === 2 && two.blocks[0].quotes[0] === 'first' && two.blocks[1].quotes[0] === 'second')
 }
 
 console.log(`\n${pass} passed, ${fail} failed`)

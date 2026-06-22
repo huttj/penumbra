@@ -241,6 +241,54 @@ export function imagesInRange(range: Range, root: Node): HTMLImageElement[] {
   return imagesInRoot(root).filter((img) => range.intersectsNode(img))
 }
 
+// The flat-text offset an image sits at: the end of the last text node before it
+// (buildIndex skips images, so this is the seam between the text on either side).
+function imageFlat(idx: Index, img: HTMLImageElement): number {
+  let flat = 0
+  for (const e of idx.nodes) {
+    if ((img.compareDocumentPosition(e.node) & Node.DOCUMENT_POSITION_PRECEDING) !== 0) flat = e.end
+    else break // idx.nodes is in document order; once past the image, stop
+  }
+  return flat
+}
+
+// Decompose a selection into ordered quote pieces — text runs and the images
+// between them — so a passage that spans an image stores (and renders, and shows
+// in the response doc) the image *in place*, not stitched out. Each text run gets
+// its own occurrence index; image pieces are `![](src)`. A selection with no
+// images yields a single text piece, identical to the plain-text path.
+export function quotePiecesFromRange(range: Range, root: Node): { quotes: string[]; nths: number[] } | null {
+  const idx = buildIndex(root)
+  const startFlat = nodeOffsetToFlat(idx, range.startContainer, range.startOffset)
+  const endFlat = nodeOffsetToFlat(idx, range.endContainer, range.endOffset)
+  if (startFlat == null || endFlat == null || endFlat < startFlat) return null
+
+  const cuts = imagesInRange(range, root)
+    .map((img) => ({ img, flat: imageFlat(idx, img) }))
+    .filter((c) => c.flat >= startFlat && c.flat <= endFlat)
+    .sort((a, b) => a.flat - b.flat)
+
+  const quotes: string[] = []
+  const nths: number[] = []
+  const pushText = (from: number, to: number) => {
+    const raw = idx.text.slice(from, to)
+    const exact = raw.trim()
+    if (!exact) return
+    const at = from + (raw.length - raw.trimStart().length) // flat offset of the trimmed text
+    const n = occurrences(idx.text, exact).indexOf(at)
+    quotes.push(exact); nths.push(n >= 0 ? n + 1 : 1)
+  }
+
+  let p = startFlat
+  for (const c of cuts) {
+    pushText(p, c.flat)
+    quotes.push(imageQuoteFromImg(c.img)); nths.push(imageOccurrence(c.img, root))
+    p = c.flat
+  }
+  pushText(p, endFlat)
+  return quotes.length ? { quotes, nths } : null
+}
+
 // When `exact` appears more than once, pick the occurrence whose surrounding
 // text best matches the recorded prefix/suffix.
 function bestQuoteMatch(text: string, q: TextQuoteSelector): number {
