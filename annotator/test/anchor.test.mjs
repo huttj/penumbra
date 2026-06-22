@@ -129,6 +129,16 @@ function rangeOver(text, needle, occurrence = 0) {
      imageSrcOf(pieces.quotes[1]) !== null &&
      pieces.quotes[2] === 'Between the pictures.')
 
+  // A selection that ENDS on an image-only <p> (element boundary, no text node)
+  // must still resolve — this is the "no comment popup" bug.
+  const rEnd = idom.window.document.createRange()
+  rEnd.setStart(ps[0].firstChild, 0)
+  rEnd.setEnd(ps[1], 1) // after the <img> inside the image-only paragraph
+  const endPieces = quotePiecesFromRange(rEnd, iroot)
+  ok('selection ending on an image still yields pieces (popup fix)',
+     endPieces && endPieces.quotes[0] === 'Before the picture.' &&
+     endPieces.quotes.some((q) => imageSrcOf(q) !== null))
+
   // A plain text passage (no image) is a single piece, like the old path.
   const r4 = idom.window.document.createRange()
   r4.setStart(ps[2].firstChild, 0)
@@ -149,20 +159,33 @@ function rangeOver(text, needle, occurrence = 0) {
     entryPoints: ['src/markdown.ts'], bundle: true, format: 'esm', write: false, target: 'es2021',
   })
   writeFileSync('test/.tmp/markdown.mjs', mout.outputFiles[0].text)
-  const { parseResponse, serializeResponse } = await import('./.tmp/markdown.mjs')
+  const { parseResponse, serializeResponse, splitQuotePieces } = await import('./.tmp/markdown.mjs')
 
-  // A composite block: text → image → text, plus a note. Must survive round-trip.
-  const block = { quotes: ['Before the picture.', '![](a/img.png)', 'Between the pictures.'], nths: [1, 2, 1], note: 'A comment.' }
+  // splitQuotePieces: inline image splits a text run into ordered pieces.
+  ok('splitQuotePieces splits inline image into text/image/text',
+     JSON.stringify(splitQuotePieces('Before. ![](a/img.png) After.')) ===
+     JSON.stringify(['Before.', '![](a/img.png)', 'After.']))
+  ok('splitQuotePieces leaves pure text as one piece',
+     JSON.stringify(splitQuotePieces('just text here')) === JSON.stringify(['just text here']))
+
+  // A composite block: text → image → text, plus a note. Serializes to ONE inline
+  // '>' line (so the editor flows the image inline) and round-trips to 3 pieces.
+  const block = { quotes: ['Before the picture.', '![](a/img.png)', 'Between the pictures.'], nths: [1, 1, 1], note: 'A comment.' }
   const md = serializeResponse('', [block])
-  ok('serializes each piece as its own > line (image keeps its occurrence marker)',
-     md.includes('> Before the picture.') && md.includes('>2 ![](a/img.png)') && md.includes('> Between the pictures.'))
+  ok('serializes a composite quote as one inline > line',
+     md.includes('> Before the picture. ![](a/img.png) Between the pictures.'))
   const { blocks } = parseResponse(md)
-  ok('round-trips a 3-piece composite block',
+  ok('round-trips a 3-piece composite block (inline)',
      blocks.length === 1 && blocks[0].quotes.length === 3 &&
      blocks[0].quotes[0] === 'Before the picture.' &&
      blocks[0].quotes[1] === '![](a/img.png)' &&
      blocks[0].quotes[2] === 'Between the pictures.' &&
-     blocks[0].nths[1] === 2 && blocks[0].note.trim() === 'A comment.')
+     blocks[0].note.trim() === 'A comment.')
+
+  // An OLD own-line composite (image on its own '>' line) also parses to pieces.
+  const ownLine = parseResponse('> textA\n> ![](src.png)\n> textC\n\nnote\n')
+  ok('own-line composite parses into pieces too',
+     ownLine.blocks[0].quotes.length === 3 && ownLine.blocks[0].quotes[1] === '![](src.png)')
 
   // A plain single-quote block still parses to one piece (no regression).
   const plain = parseResponse('> just one quote\n\nthe note\n')

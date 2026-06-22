@@ -42,8 +42,26 @@ export function extractBlockquotes(md: string): string[] {
 export type RBlock = { quotes: string[]; nths: number[]; note: string }
 
 const isQ = (l: string | undefined) => /^\s*>/.test(l ?? '')
-// A quote line that is itself a markdown image embed: `![](src)`.
-const isImageLine = (t: string) => /^!\[[^\]]*\]\([^)\s]+\)$/.test(t.trim())
+
+// Split a quote's text into ordered pieces — text runs and `![](src)` images,
+// inline OR on their own line (the caller joins the blockquote's lines first, so
+// both encodings reduce to the same inline form). Pure text yields one piece, so
+// ordinary quotes are unchanged.
+export function splitQuotePieces(text: string): string[] {
+  const out: string[] = []
+  const re = /!\[[^\]]*\]\([^)\s]+\)/g
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = re.exec(text))) {
+    const before = text.slice(last, m.index).trim()
+    if (before) out.push(before)
+    out.push(m[0])
+    last = m.index + m[0].length
+  }
+  const tail = text.slice(last).trim()
+  if (tail) out.push(tail)
+  return out
+}
 
 // Parse a response doc into a leading preamble + a sequence of quote-blocks.
 // Each quote is its own block and owns the prose below it until the next quote
@@ -68,14 +86,15 @@ export function parseResponse(md: string): { preamble: string; blocks: RBlock[] 
     // (incl. the zero-width sentinel) — comments never keep trailing blanks now.
     while (note.length && note[0].trim() === '') note.shift()
     while (note.length && note[note.length - 1].replace(/​/g, '').trim() === '') note.pop()
-    // A blockquote with an image becomes ordered pieces (text runs + `![](src)`),
-    // so the image keeps its place. A pure-text blockquote stays one quote (the
-    // long-standing behavior — joined into a single passage).
+    // Join the blockquote's lines, then split into ordered pieces (text runs +
+    // images). A pure-text blockquote yields a single piece — the long-standing
+    // passage — so ordinary quotes are unchanged. The occurrence index pins the
+    // first piece; later pieces default to the first/only instance.
     let quotes: string[] = []
     let nths: number[] = []
     if (qlines.length) {
-      if (qlines.some((l) => isImageLine(l.text))) { quotes = qlines.map((l) => l.text); nths = qlines.map((l) => l.nth) }
-      else { quotes = [qlines.map((l) => l.text).join(' ')]; nths = [qlines[0].nth] }
+      quotes = splitQuotePieces(qlines.map((l) => l.text).join(' '))
+      nths = quotes.map((_, i) => (i === 0 ? qlines[0].nth : 1))
     }
     blocks.push({ quotes, nths, note: note.join('\n') })
   }
@@ -88,14 +107,13 @@ export function serializeResponse(preamble: string, blocks: RBlock[]): string {
   const blockStrs: string[] = []
   for (const b of blocks) {
     const note = b.note.replace(/^\n+/, '').replace(/[\s​]+$/, '') // drop leading + trailing blanks
-    if (!b.quotes.join('').trim() && !note.trim()) continue
-    // One '>' line per quote piece (consecutive lines = one block); drop empty pieces.
-    const qs = b.quotes
-      .map((q, k) => ({ q: (q ?? '').replace(/\n/g, ' '), n: b.nths?.[k] ?? 1 }))
-      .filter((e) => e.q.trim())
-      .map((e) => formatQuoteMarker(e.n, e.q))
-      .join('\n')
-    blockStrs.push(note ? `${qs}\n\n${note}` : qs)
+    const pieces = b.quotes.map((q) => (q ?? '').replace(/\n/g, ' ').trim()).filter(Boolean)
+    if (!pieces.length && !note.trim()) continue
+    // Pieces (text + images) join inline into one '>' line, so an in-quote image
+    // is an inline embed — the editor flows it inline and the cursor can sit on
+    // either side. The occurrence index rides on the first piece.
+    const qs = pieces.length ? formatQuoteMarker(b.nths?.[0] ?? 1, pieces.join(' ')) : ''
+    blockStrs.push(qs && note ? `${qs}\n\n${note}` : qs || note)
   }
   const blockBody = blockStrs.join('\n\n\n') // '\n\n\n' = one extra blank line before quotes 2..n
   const pre = preamble.trim()

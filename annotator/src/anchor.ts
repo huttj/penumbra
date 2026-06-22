@@ -46,11 +46,23 @@ function nodeOffsetToFlat(idx: Index, node: Node, offset: number): number | null
     const e = idx.nodes.find((x) => x.node === node)
     return e ? e.start + offset : null
   }
-  // Element position: map to the flat start of the offset-th child's first text.
-  const child = node.childNodes[offset] ?? node.childNodes[node.childNodes.length - 1]
-  if (!child) return null
-  const e = idx.nodes.find((x) => x.node === child || child.contains(x.node))
-  return e ? e.start : null
+  // Element position: the point sits between child nodes. Locate it by document
+  // order against the indexed text — the start of the first text at/after the
+  // point, else the end of the last text before it. This resolves boundaries that
+  // land next to an image (an image-only <p> has no text node to map to, which
+  // used to return null and silently drop the whole selection).
+  const doc = node.ownerDocument ?? document
+  const pt = doc.createRange()
+  try { pt.setStart(node, offset); pt.collapse(true) } catch { return null }
+  let before: number | null = null
+  for (const e of idx.nodes) {
+    const endR = doc.createRange(); endR.setStart(e.node, e.node.data.length); endR.collapse(true)
+    if (pt.compareBoundaryPoints(Range.START_TO_START, endR) >= 0) { before = e.end; continue } // whole node precedes the point
+    const startR = doc.createRange(); startR.setStart(e.node, 0); startR.collapse(true)
+    if (pt.compareBoundaryPoints(Range.START_TO_START, startR) <= 0) return before ?? e.start // point is at/before this node
+    return e.start // point strictly inside (rare for an element position)
+  }
+  return before
 }
 
 // Build the selector pair for a user's live selection Range.

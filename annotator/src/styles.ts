@@ -79,8 +79,8 @@ export const CSS = `
 /* clamp only in the compact card; expanded shows everything */
 .pen-card.compact .pen-quote { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 /* an image quote piece shows the image itself (small preview), not its markdown */
-.pen-quote-img { padding: 4px; }
-.pen-quote-img img { display: block; height: 64px; width: auto; max-width: 100%; border-radius: 5px; margin: 0; }
+.pen-quote-img { padding: 4px 8px; }
+.pen-quote-img img { display: block; height: 64px; width: auto; max-width: calc(100% - 4px); border-radius: 5px; margin: 0; }
 .pen-muted { color: var(--pen-muted); font-style: italic; }
 /* images in a margin card are small fixed-height previews (full size lives in the
    editor); the fixed height also keeps card measurement stable so they don't overlap */
@@ -250,12 +250,13 @@ body.pen-panel-open .center { max-width: none !important; min-width: 0 !importan
 .pen-prose pre { background: var(--pen-chip); padding: 10px 12px; border-radius: 8px; overflow: auto; }
 .pen-prose pre code { background: none; padding: 0; }
 /* a quote FOUND in the source = burnt amber; NOT found = cool teal (won't anchor) */
-.pen-prose blockquote { border-left: 3px solid var(--pen-accent); margin: .6em 0; padding: .2em 0 .2em 12px;
+.pen-prose blockquote { border-left: 3px solid var(--pen-accent); margin: .6em 0; padding: .2em 12px;
   color: var(--pen-muted); background: rgba(185,119,10,.09); border-radius: 0 5px 5px 0;
   transition: background .12s ease, box-shadow .12s ease, border-color .12s ease; }
 .pen-prose blockquote p { margin: .15em 0; }
-/* an in-quote image is a tidy block, not a big gap (it's a TipTap block node) */
-.pen-prose blockquote img { display: block; max-width: 100%; border-radius: 5px; margin: .3em 0; }
+/* an in-quote image is inline (cursor can sit on either side); cap its size so it
+   sits in the text flow rather than blowing the quote open */
+.pen-prose img { max-width: 100%; max-height: 260px; width: auto; border-radius: 5px; vertical-align: middle; }
 .pen-prose blockquote.pen-bq-active { background: rgba(185,119,10,.20);
   box-shadow: inset 4px 0 0 var(--pen-accent), 0 0 0 2px rgba(185,119,10,.42); }
 /* quote that won't anchor (text not in source, OR too short) → cool teal, no picker */

@@ -297,7 +297,7 @@ export class ResponsePanel {
         KeepBlankParagraphs,
         QuoteBlock,
         Link.configure({ openOnClick: false, autolink: true, HTMLAttributes: { target: '_blank', rel: 'noopener' } }),
-        Image.configure({ inline: false }),
+        Image.configure({ inline: true }), // inline so the cursor can sit on either side of an in-quote image
         Markdown.configure({ html: false, linkify: true, breaks: true, transformPastedText: true }),
         BqHighlight,
       ],
@@ -433,9 +433,15 @@ export class ResponsePanel {
   // anchor used for hit-testing/amplify (a stable, resolvable handle); the full set
   // of text runs and images is what gets highlighted (see quoteTargets).
   private firstTextRun(node: any): string {
-    let t = ''
-    node.forEach((child: any) => { if (!t && child.type.name !== 'image') t = child.textContent.trim() })
-    return t
+    let run = ''
+    let done = false
+    node.descendants((child: any) => {
+      if (done) return false
+      if (child.type.name === 'image') { done = true; return false }
+      if (child.isText) run += child.text
+      return true
+    })
+    return run.trim()
   }
   private quoteAnchors(): { text: string; nth: number }[] {
     const out: { text: string; nth: number }[] = []
@@ -453,23 +459,30 @@ export class ResponsePanel {
   private quoteTargets(): { ranges: Range[]; imgs: HTMLImageElement[] } {
     const ranges: Range[] = []
     const imgs: HTMLImageElement[] = []
-    this.editor.state.doc.forEach((node) => {
-      if (node.type.name !== 'blockquote') return
-      const nth = node.attrs.nth ?? 1
+    this.editor.state.doc.forEach((bq) => {
+      if (bq.type.name !== 'blockquote') return
+      const nth = bq.attrs.nth ?? 1
+      let run = ''
       let first = true
-      node.forEach((child: any) => {
+      const flush = () => {
+        const t = run.trim(); run = ''
+        if (t.length < MIN_QUOTE) return
+        const r = resolveNthQuote(t, first ? nth : 1, this.root)
+        if (r) ranges.push(r)
+        first = false
+      }
+      // descendants() flattens inline AND block images alike into one ordered walk.
+      bq.descendants((child: any) => {
         if (child.type.name === 'image') {
+          flush()
           const el = child.attrs.src ? resolveImageQuote(`![](${child.attrs.src})`, 1, this.root) : null
           if (el) imgs.push(el)
-        } else {
-          const t = child.textContent.trim()
-          if (t.length >= MIN_QUOTE) {
-            const r = resolveNthQuote(t, first ? nth : 1, this.root)
-            if (r) ranges.push(r)
-            first = false
-          }
+          return false
         }
+        if (child.isText) run += child.text
+        return true
       })
+      flush()
     })
     return { ranges, imgs }
   }
