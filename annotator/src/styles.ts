@@ -258,11 +258,12 @@ body.pen-panel-open .center { max-width: none !important; min-width: 0 !importan
 /* an in-quote image is inline (cursor can sit on either side); cap its size so it
    sits in the text flow rather than blowing the quote open */
 .pen-prose img { max-width: 100%; max-height: 260px; width: auto; border-radius: 5px; vertical-align: middle; }
-/* live-preview images (Obsidian-style): the image markdown source text is hidden
-   and replaced by the rendered picture, except where the cursor sits (then the raw
-   source shows so it can be edited) */
-.pen-prose .pen-md-img-raw { display: none; }
-.pen-prose img.pen-md-img-live { cursor: text; }
+/* an in-quote image: shows the picture; selecting it swaps to an input holding its
+   ![](src) markdown so it can be edited in a field (no cursor-trap) */
+.pen-img-node.editing { display: block; margin: .3em 0; }
+.pen-img-node .pen-img-src-input { width: 100%; box-sizing: border-box; font-family: var(--codeFont, ui-monospace, SFMono-Regular, monospace);
+  font-size: .85em; padding: 3px 6px; border: 1px solid var(--pen-accent); border-radius: 4px;
+  background: var(--pen-bg); color: var(--pen-fg); }
 .pen-prose blockquote.pen-bq-active { background: rgba(185,119,10,.20);
   box-shadow: inset 4px 0 0 var(--pen-accent), 0 0 0 2px rgba(185,119,10,.42); }
 /* quote that won't anchor (text not in source, OR too short) → cool teal, no picker */

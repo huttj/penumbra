@@ -2,8 +2,8 @@
 // on demand the first time the response panel is opened, so readers who never
 // write a response don't pay for ~600KB of editor code.
 import { Api } from './api'
-import { imageSrcOf, locateText, occurrenceOf, resolveImageQuote, resolveNthQuote, selectorsFromRange, sourceText } from './anchor'
-import { formatQuoteMarker, parseQuoteMarker, splitQuotePieces } from './markdown'
+import { locateText, occurrenceOf, resolveImageQuote, resolveNthQuote, selectorsFromRange, sourceText } from './anchor'
+import { formatQuoteMarker, parseQuoteMarker } from './markdown'
 import { syncImageOverlays } from './overlay'
 import { Editor, Extension } from '@tiptap/core'
 import { Plugin, PluginKey, TextSelection } from '@tiptap/pm/state'
@@ -92,68 +92,75 @@ const QuoteBlock = Blockquote.extend({
   },
 })
 
-// Live-preview images, Obsidian-style. The document always holds plain markdown
-// `![](src)` TEXT (clean to serialize/anchor); rendering is done with DECORATIONS
-// (display-only, so they can never corrupt the doc):
-//   • appendTransaction flattens any image NODE (from markdown parse or paste) to
-//     `![](src)` text, so the doc never keeps an editor-specific image node.
-//   • decorations render every `![](src)` run as a picture — EXCEPT the one the
-//     cursor is on, shown as raw editable source. Move off it → it renders; type a
-//     new `![](src)` and it renders once the cursor leaves.
-const IMG_MD = /!\[[^\]]*\]\([^)\s]+\)/g
+// An in-quote image renders as the picture, but selecting it (click OR arrow onto
+// it) swaps to a one-line INPUT FIELD holding its `![](src)` markdown, focused and
+// ready to edit. Editing happens in that field — entirely outside ProseMirror's
+// text flow — so the cursor can never get trapped and typing can't delete it.
+// Enter/blur commits (updates the src, or deletes the node if cleared); Escape
+// reverts; moving off re-renders the picture.
 const SourceToggleImage = Image.extend({
-  addProseMirrorPlugins() {
-    const parent = this.parent?.() ?? []
-    return [
-      ...parent,
-      new Plugin({
-        key: new PluginKey("imageLivePreview"),
-        appendTransaction(_trs, _old, newState) {
-          const imageType = newState.schema.nodes.image
-          if (!imageType) return null
-          const hits: { pos: number; size: number; src: string }[] = []
-          newState.doc.descendants((node, pos) => {
-            if (node.type === imageType) hits.push({ pos, size: node.nodeSize, src: (node.attrs as any).src ?? "" })
-          })
-          if (!hits.length) return null
-          const tr = newState.tr
-          for (const h of hits.reverse()) tr.replaceWith(h.pos, h.pos + h.size, newState.schema.text(`![](${h.src})`))
-          return tr.docChanged ? tr : null
+  addNodeView() {
+    return ({ node, getPos, editor }) => {
+      let current = node
+      let editing = false
+      const dom = document.createElement("div")
+      dom.className = "pen-img-node"
+
+      const showImage = () => {
+        editing = false
+        dom.classList.remove("editing")
+        dom.replaceChildren()
+        const img = document.createElement("img")
+        img.src = (current.attrs as any).src ?? ""
+        dom.appendChild(img)
+      }
+      const commit = (value: string) => {
+        const pos = typeof getPos === "function" ? getPos() : null
+        if (typeof pos !== "number") return showImage()
+        const trimmed = value.trim()
+        if (!trimmed) return void editor.chain().focus().deleteRange({ from: pos, to: pos + current.nodeSize }).run()
+        const m = /^!\[[^\]]*\]\(([^)\s]+)\)\s*$/.exec(trimmed)
+        if (m && m[1] !== (current.attrs as any).src) {
+          editor.chain().command(({ tr }) => { tr.setNodeAttribute(pos, "src", m[1]); return true }).run()
+        }
+        showImage()
+      }
+      const showEditor = () => {
+        if (editing) return
+        editing = true
+        dom.classList.add("editing")
+        dom.replaceChildren()
+        const input = document.createElement("input")
+        input.type = "text"
+        input.className = "pen-img-src-input"
+        input.value = `![](${(current.attrs as any).src ?? ""})`
+        let done = false
+        const finish = () => { if (done) return; done = true; commit(input.value) }
+        input.addEventListener("blur", finish)
+        input.addEventListener("keydown", (e) => {
+          e.stopPropagation()
+          if (e.key === "Enter") { e.preventDefault(); input.blur() }
+          else if (e.key === "Escape") { e.preventDefault(); done = true; showImage() }
+        })
+        dom.appendChild(input)
+        requestAnimationFrame(() => { input.focus(); input.setSelectionRange(input.value.length, input.value.length) })
+      }
+
+      showImage()
+      return {
+        dom,
+        update(newNode: any) {
+          if (newNode.type !== current.type) return false
+          current = newNode
+          if (!editing) showImage()
+          return true
         },
-        props: {
-          decorations(state) {
-            const { selection, doc } = state
-            const decos: Decoration[] = []
-            doc.descendants((node, pos) => {
-              if (!node.isText || !node.text) return
-              IMG_MD.lastIndex = 0
-              let m: RegExpExecArray | null
-              while ((m = IMG_MD.exec(node.text))) {
-                const from = pos + m.index
-                const to = from + m[0].length
-                if (selection.from <= to && selection.to >= from) continue // cursor on it → raw source
-                const src = /\(([^)\s]+)\)/.exec(m[0])?.[1]
-                if (!src) continue
-                decos.push(Decoration.inline(from, to, { class: "pen-md-img-raw" }))
-                decos.push(
-                  Decoration.widget(
-                    from,
-                    () => {
-                      const img = document.createElement("img")
-                      img.src = src
-                      img.className = "pen-md-img-live"
-                      return img
-                    },
-                    { side: -1 },
-                  ),
-                )
-              }
-            })
-            return DecorationSet.create(doc, decos)
-          },
-        },
-      }),
-    ]
+        selectNode: showEditor,
+        deselectNode: showImage,
+        stopEvent: () => editing, // while editing, the input owns its own events
+        ignoreMutation: () => true,
+      }
+    }
   },
 })
 // Strip `>N ` markers to plain `> ` before the editor parses (markdown-it doesn't
@@ -385,7 +392,7 @@ export class ResponsePanel {
         KeepBlankParagraphs,
         QuoteBlock,
         Link.configure({ openOnClick: false, autolink: true, HTMLAttributes: { target: '_blank', rel: 'noopener' } }),
-        SourceToggleImage.configure({ inline: true }), // shows ![](src) source when selected
+        SourceToggleImage.configure({ inline: false }), // shows ![](src) source when selected
         Markdown.configure({ html: false, linkify: true, breaks: true, transformPastedText: true }),
         BqHighlight,
       ],
@@ -520,13 +527,17 @@ export class ResponsePanel {
   // A blockquote can now interleave text runs and images. Its FIRST text run is the
   // anchor used for hit-testing/amplify (a stable, resolvable handle); the full set
   // of text runs and images is what gets highlighted (see quoteTargets).
-  // Images live as `![](src)` TEXT now (live-preview), so split the blockquote's
-  // text into pieces and take the first text run.
+  // The blockquote's first text run (before any image node) — a stable handle.
   private firstTextRun(node: any): string {
-    for (const piece of splitQuotePieces(node.textContent)) {
-      if (!imageSrcOf(piece)) return piece
-    }
-    return ''
+    let run = ''
+    let done = false
+    node.descendants((child: any) => {
+      if (done) return false
+      if (child.type.name === 'image') { done = true; return false }
+      if (child.isText) run += child.text
+      return true
+    })
+    return run.trim()
   }
   private quoteAnchors(): { text: string; nth: number }[] {
     const out: { text: string; nth: number }[] = []
@@ -547,17 +558,26 @@ export class ResponsePanel {
     this.editor.state.doc.forEach((bq) => {
       if (bq.type.name !== 'blockquote') return
       const nth = bq.attrs.nth ?? 1
+      let run = ''
       let first = true
-      for (const piece of splitQuotePieces(bq.textContent)) {
-        if (imageSrcOf(piece)) {
-          const el = resolveImageQuote(piece, 1, this.root)
-          if (el) imgs.push(el)
-        } else if (piece.length >= MIN_QUOTE) {
-          const r = resolveNthQuote(piece, first ? nth : 1, this.root)
-          if (r) ranges.push(r)
-          first = false
-        }
+      const flush = () => {
+        const t = run.trim(); run = ''
+        if (t.length < MIN_QUOTE) return
+        const r = resolveNthQuote(t, first ? nth : 1, this.root)
+        if (r) ranges.push(r)
+        first = false
       }
+      bq.descendants((child: any) => {
+        if (child.type.name === 'image') {
+          flush()
+          const el = child.attrs.src ? resolveImageQuote(`![](${child.attrs.src})`, 1, this.root) : null
+          if (el) imgs.push(el)
+          return false
+        }
+        if (child.isText) run += child.text
+        return true
+      })
+      flush()
     })
     return { ranges, imgs }
   }
@@ -713,7 +733,7 @@ export function createMiniEditor(mount: HTMLElement, markdown: string, opts: { o
       StarterKit.configure({ paragraph: false }),
       KeepBlankParagraphs,
       Link.configure({ openOnClick: false, autolink: true, HTMLAttributes: { target: '_blank', rel: 'noopener' } }),
-      SourceToggleImage.configure({ inline: true }),
+      SourceToggleImage.configure({ inline: false }),
       Markdown.configure({ html: false, linkify: true, breaks: true, transformPastedText: true }),
     ],
     content: markdown,
