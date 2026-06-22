@@ -1,5 +1,8 @@
 import { Api, type User } from './api'
-import { locateText, occurrenceOf, resolveNthQuote, selectorsFromRange } from './anchor'
+import {
+  imageOccurrence, imageQuoteFromImg, imageSrcOf, imagesInRange, locateText, occurrenceOf,
+  resolveImageQuote, resolveNthQuote, selectorsFromRange,
+} from './anchor'
 import { extractBlockquotes, hasCommentText, parseResponse, renderMarkdown, serializeResponse, splitLeadingEmojis } from './markdown'
 import { ReviewsPanel } from './response'
 
@@ -36,7 +39,10 @@ type Config = { api: string; source?: string; sourceBase?: string; root?: string
 // LEADING emoji(s) are reactions (stacked left-rail chips); the remaining text is
 // the comment (right card). One block can have both. Single source of truth for
 // the page margins and the response panel.
-type Block = { id: string; quotes: string[]; nths: number[]; note: string; ranges: Range[]; emojis: string[]; text: string }
+// `imgs` are the images this block highlights — both image-embed quote pieces and
+// any images caught inside a text passage's range. They render as overlay boxes
+// (the CSS Custom Highlight API only paints text, never replaced elements).
+type Block = { id: string; quotes: string[]; nths: number[]; note: string; ranges: Range[]; imgs: HTMLImageElement[]; emojis: string[]; text: string }
 
 const HL = typeof (globalThis as any).Highlight !== 'undefined' && !!(window as any).CSS?.highlights
 const GAP = 10
@@ -99,7 +105,7 @@ export class Penumbra {
   private toolbar?: HTMLElement
   private loginEl?: HTMLElement
   private compose?: HTMLElement
-  private composeCtx?: { range: Range; quote: string }
+  private composeCtx?: { range: Range; quote: string; imgs?: HTMLImageElement[] }
   private quoteBtn?: HTMLElement
   private tooltip?: HTMLElement
 
@@ -223,17 +229,21 @@ export class Penumbra {
     this.preamble = preamble
     this.blocks = blocks.map((b, i) => {
       const { emojis, text } = splitLeadingEmojis(b.note)
-      return {
-        id: `b${i}`,
-        quotes: b.quotes,
-        nths: b.nths,
-        note: b.note,
-        emojis,
-        text,
-        ranges: b.quotes
-          .map((q, k) => resolveNthQuote(q, b.nths[k] ?? 1, this.root))
-          .filter(Boolean) as Range[],
-      }
+      const ranges: Range[] = []
+      const imgs: HTMLImageElement[] = []
+      const addImg = (img: HTMLImageElement) => { if (!imgs.includes(img)) imgs.push(img) }
+      b.quotes.forEach((q, k) => {
+        const nth = b.nths[k] ?? 1
+        if (imageSrcOf(q)) {
+          // An image-embed quote: anchor to the live <img> by basename + occurrence.
+          const img = resolveImageQuote(q, nth, this.root)
+          if (img) { addImg(img); const r = document.createRange(); r.selectNode(img); ranges.push(r) }
+        } else {
+          const r = resolveNthQuote(q, nth, this.root)
+          if (r) { ranges.push(r); imagesInRange(r, this.root).forEach(addImg) } // images swept up by a text passage
+        }
+      })
+      return { id: `b${i}`, quotes: b.quotes, nths: b.nths, note: b.note, emojis, text, ranges, imgs }
     })
   }
 
@@ -377,6 +387,7 @@ export class Penumbra {
   }
 
   private renderHighlights() {
+    this.renderImageOverlays() // images can't be painted by the Highlight API; box them
     if (!HL) return
     const h = (window as any).CSS.highlights
     const H = (globalThis as any).Highlight
@@ -390,6 +401,32 @@ export class Penumbra {
 
     const active = this.blockById(this.hovered ?? this.focused)?.ranges[0]
     if (active) h.set('penumbra-quote-active', new H(active)); else h.delete('penumbra-quote-active')
+  }
+
+  // Draw an overlay box over every highlighted image. The boxes live in the
+  // document-anchored layer (so they scroll with the page) and are pointer-events:
+  // none, so clicks fall through to the <img> and reach the normal block/compose
+  // handlers — same hit-testing as a text highlight.
+  private renderImageOverlays() {
+    this.layer.querySelectorAll('.pen-imghl').forEach((n) => n.remove())
+    if (!this.highlightsOn || this.responsePanel) return
+    const activeId = this.hovered ?? this.focused
+    for (const b of this.blocks)
+      for (const img of b.imgs) this.addImageOverlay(img, b.id === activeId ? 'active' : '')
+    for (const img of this.composeCtx?.imgs ?? []) this.addImageOverlay(img, 'draft')
+  }
+
+  private addImageOverlay(img: HTMLImageElement, variant: string) {
+    const rect = img.getBoundingClientRect()
+    if (!rect.width || !rect.height) return
+    const d = document.createElement('div')
+    d.className = 'pen-imghl' + (variant ? ' ' + variant : '')
+    d.setAttribute('data-pen-ui', '')
+    d.style.left = `${window.scrollX + rect.left}px`
+    d.style.top = `${window.scrollY + rect.top}px`
+    d.style.width = `${rect.width}px`
+    d.style.height = `${rect.height}px`
+    this.layer.appendChild(d)
   }
 
   private layoutRightRail() {
@@ -633,12 +670,17 @@ export class Penumbra {
   // The one compose box: a rich-text comment (autosaved, no button) plus an emoji
   // panel where a click adds/removes that reaction and closes. Used for a fresh
   // selection (range) and for editing an existing block (editBlk).
-  private async openCompose(range: Range | null, editBlk?: Block) {
+  private async openCompose(range: Range | null, editBlk?: Block, img?: HTMLImageElement) {
     if (!this.user) { if (range) this.promptSignIn(range); return }
     let quote = ''
-    if (editBlk) quote = editBlk.quotes[0] ?? ''
+    let nth = 1
+    let imgs: HTMLImageElement[] = []
+    if (editBlk) { quote = editBlk.quotes[0] ?? ''; imgs = editBlk.imgs }
+    else if (img) { quote = imageQuoteFromImg(img); nth = imageOccurrence(img, this.root); imgs = [img] }
     else if (range) {
       quote = (selectorsFromRange(range, this.root)?.find((s: any) => s.type === 'TextQuoteSelector') as any)?.exact ?? ''
+      nth = occurrenceOf(range, this.root)
+      imgs = imagesInRange(range, this.root) // a passage can sweep up images
     }
     if (!quote) return
     const anchor = range ?? editBlk?.ranges[0] ?? null
@@ -648,7 +690,7 @@ export class Penumbra {
     // The block being edited; for a fresh selection, a detached one we only graft
     // into the doc once it has content (on autosave or emoji pick). The occurrence
     // index pins this quote to the instance the reader actually selected.
-    const wb: Block = editBlk ?? { id: `b${this.blocks.length}`, quotes: [quote], nths: [occurrenceOf(range!, this.root)], note: '', emojis: [], text: '', ranges: [range!.cloneRange()] }
+    const wb: Block = editBlk ?? { id: `b${this.blocks.length}`, quotes: [quote], nths: [nth], note: '', emojis: [], text: '', ranges: [range!.cloneRange()], imgs }
 
     const rect = anchor.getBoundingClientRect()
     const box = document.createElement('div')
@@ -659,7 +701,7 @@ export class Penumbra {
     this.compose = box
     this.composeBlock = wb
     this.composeNew = !editBlk
-    if (range) { this.composeCtx = { range, quote }; this.renderHighlights() } // stand-in highlight
+    if (range) { this.composeCtx = { range, quote, imgs }; this.renderHighlights() } // stand-in highlight
 
     let factory: MiniEditorFactory
     try { factory = await loadMiniEditor() } catch { return }
@@ -674,6 +716,10 @@ export class Penumbra {
   }
 
   private editBlock(blk: Block) { void this.openCompose(null, blk) }
+
+  // A range that selects a whole image element — gives us its rect for docking the
+  // compose box and for hit-testing, even though it carries no highlightable text.
+  private imageRange(img: HTMLImageElement): Range { const r = document.createRange(); r.selectNode(img); return r }
 
   // A compose block is worth keeping only if it has a reaction OR real comment text
   // (whitespace / blank lines / a lone reaction don't make a sidebar comment).
@@ -812,12 +858,19 @@ export class Penumbra {
     if (this.responsePanel) return // the response panel owns highlight clicks while open
     if ((e.target as HTMLElement).closest('[data-pen-ui]')) return
     if (window.getSelection()?.toString().trim()) return
+    const img = (e.target as HTMLElement).closest('img') as HTMLImageElement | null
     for (const b of this.blocks) {
-      if (b.ranges.some((r) => this.hitsRange(e, r))) {
+      // A click hits a block if it lands on its text OR on an image the block quotes.
+      if (b.ranges.some((r) => this.hitsRange(e, r)) || (img && b.imgs.includes(img))) {
         // Has a comment → focus its card; emoji-only → compose box to add text/swap emoji.
         if (hasCommentText(b.text)) return this.focus(b.id)
         return this.editBlock(b)
       }
+    }
+    // A click on an un-annotated image starts an image comment (highlights-on only).
+    if (img && this.highlightsOn && this.root.contains(img) && !img.closest('[data-pen-ui]')) {
+      void this.openCompose(this.imageRange(img), undefined, img)
+      return
     }
     if (this.focused) { this.focused = null; this.renderAll() }
   }

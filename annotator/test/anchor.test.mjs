@@ -19,7 +19,8 @@ globalThis.document = dom.window.document
 globalThis.Node = dom.window.Node
 globalThis.NodeFilter = dom.window.NodeFilter
 
-const { selectorsFromRange, rangeFromSelectors } = await import('./.tmp/anchor.mjs')
+const { selectorsFromRange, rangeFromSelectors, imageSrcOf, imageBasename, resolveImageQuote, imageOccurrence, imagesInRange } =
+  await import('./.tmp/anchor.mjs')
 const root = document.querySelector('article')
 
 let pass = 0, fail = 0
@@ -73,6 +74,53 @@ function rangeOver(text, needle, occurrence = 0) {
   const quoteBroken = sels.map((s) => s.type === 'TextQuoteSelector' ? { ...s, exact: 'ZZZ not here' } : s)
   const back = rangeFromSelectors(quoteBroken, root)
   ok('falls back to TextPositionSelector', back && back.toString() === 'Acceleration')
+}
+
+// ---- image anchoring -------------------------------------------------------
+// Build a doc with two paragraphs, an image between them, and a second copy of
+// that same image later on (to exercise the occurrence index).
+{
+  const idom = new JSDOM(`<!doctype html><article id="img-root">
+    <p>Before the picture.</p>
+    <p><img src="../attachments/pasted-image-20260621152514.png"></p>
+    <p>Between the pictures.</p>
+    <p><img src="/deep/path/pasted-image-20260621152514.png?v=2"></p>
+    <p>After the pictures.</p>
+    <p><img src="other.png"></p>
+  </article>`)
+  globalThis.document = idom.window.document
+  globalThis.Node = idom.window.Node
+  globalThis.NodeFilter = idom.window.NodeFilter
+  globalThis.Range = idom.window.Range
+  const iroot = idom.window.document.querySelector('article')
+
+  ok('imageSrcOf detects an embed', imageSrcOf('![](foo/bar.png)') === 'foo/bar.png')
+  ok('imageSrcOf rejects plain text', imageSrcOf('just some words') === null)
+  ok('basename strips path/query and decodes',
+     imageBasename('../attachments/Pasted%20image%2020260621152514.png') === 'pasted image 20260621152514.png')
+
+  // The two pasted-image-20260621152514.png copies share a basename; resolve by occurrence.
+  const q = '![](pasted-image-20260621152514.png)'
+  const first = resolveImageQuote(q, 1, iroot)
+  const second = resolveImageQuote(q, 2, iroot)
+  ok('resolves the 1st occurrence by basename', first === iroot.querySelectorAll('img')[0])
+  ok('resolves the 2nd occurrence by basename', second === iroot.querySelectorAll('img')[1])
+  ok('overshooting nth falls back to last match', resolveImageQuote(q, 9, iroot) === second)
+  ok('unknown image resolves to null', resolveImageQuote('![](nope.png)', 1, iroot) === null)
+  ok('imageOccurrence numbers the 2nd copy', imageOccurrence(iroot.querySelectorAll('img')[1], iroot) === 2)
+
+  // A range spanning "Before…" through "Between…" contains the first image only.
+  const r = idom.window.document.createRange()
+  r.setStart(iroot.querySelector('p').firstChild, 0)
+  r.setEnd(iroot.querySelectorAll('p')[2].firstChild, 5)
+  const caught = imagesInRange(r, iroot)
+  ok('imagesInRange catches the image inside a text passage',
+     caught.length === 1 && caught[0] === iroot.querySelectorAll('img')[0])
+
+  // restore the text-test globals for any later additions
+  globalThis.document = dom.window.document
+  globalThis.Node = dom.window.Node
+  globalThis.NodeFilter = dom.window.NodeFilter
 }
 
 console.log(`\n${pass} passed, ${fail} failed`)

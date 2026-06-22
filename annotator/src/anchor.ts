@@ -180,6 +180,67 @@ export function locateText(text: string, root: Node): Selector[] | null {
   ]
 }
 
+// ---- image anchoring ------------------------------------------------------
+// An image quote isn't text, so it can't live in the flat-text index. We anchor
+// it the way the author refers to it: by the image's *source*. The wire form is a
+// markdown image — `![](<src>)` — and we resolve it to a live <img> by matching
+// the src's BASENAME (so it survives directory/baseUrl differences between pages)
+// plus an occurrence index (the analogue of a text quote's prefix/suffix, to pin
+// the right instance when the same image appears more than once).
+
+// Detect an image-embed quote and pull out its src. Returns null for plain text.
+export function imageSrcOf(quote: string): string | null {
+  const m = /^\s*!\[[^\]]*\]\(([^)\s]+)\)\s*$/.exec(quote ?? '')
+  return m ? m[1] : null
+}
+
+// The stable identity of an image src: last path segment, query/hash stripped,
+// percent-decoded, lowercased. `../attachments/Pasted%20image.png?v=2` → `pasted image.png`.
+export function imageBasename(src: string): string {
+  let s = (src ?? '').split('#')[0].split('?')[0]
+  s = s.slice(s.lastIndexOf('/') + 1)
+  try { s = decodeURIComponent(s) } catch {}
+  return s.toLowerCase()
+}
+
+// Every content <img> under root, in document order, skipping Penumbra's own UI.
+function imagesInRoot(root: Node): HTMLImageElement[] {
+  const all = Array.from((root as Element).querySelectorAll?.('img') ?? []) as HTMLImageElement[]
+  return all.filter((img) => !img.closest('[data-pen-ui]'))
+}
+
+// Resolve an image quote to the live <img> element: the `nth` (1-based) image
+// whose src basename matches. Falls back to the last match if nth overshoots.
+export function resolveImageQuote(quote: string, nth: number, root: Node): HTMLImageElement | null {
+  const src = imageSrcOf(quote)
+  if (!src) return null
+  const want = imageBasename(src)
+  const matches = imagesInRoot(root).filter((img) => imageBasename(img.getAttribute('src') ?? '') === want)
+  if (!matches.length) return null
+  return matches[Math.min(Math.max(1, nth || 1), matches.length) - 1]
+}
+
+// Which occurrence (1-based) of its own basename a given <img> is — for capture,
+// mirroring occurrenceOf() for text.
+export function imageOccurrence(img: HTMLImageElement, root: Node): number {
+  const want = imageBasename(img.getAttribute('src') ?? '')
+  const matches = imagesInRoot(root).filter((i) => imageBasename(i.getAttribute('src') ?? '') === want)
+  const n = matches.indexOf(img)
+  return n >= 0 ? n + 1 : 1
+}
+
+// The markdown image-embed quote for an <img> (src kept as-is for response-doc
+// preview; resolution keys off its basename, so the full path is just a hint).
+export function imageQuoteFromImg(img: HTMLImageElement): string {
+  return `![](${img.getAttribute('src') ?? ''})`
+}
+
+// The <img> elements that fall inside a live range, in document order — used to
+// paint overlay highlights for images caught in a text passage.
+export function imagesInRange(range: Range, root: Node): HTMLImageElement[] {
+  return imagesInRoot(root).filter((img) => range.intersectsNode(img))
+}
+
 // When `exact` appears more than once, pick the occurrence whose surrounding
 // text best matches the recorded prefix/suffix.
 function bestQuoteMatch(text: string, q: TextQuoteSelector): number {

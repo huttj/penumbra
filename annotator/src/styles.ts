@@ -190,6 +190,14 @@ export const CSS = `
 ::highlight(penumbra-quote) { background-color: rgba(255, 196, 64, 0.34); }
 ::highlight(penumbra-quote-active) { background-color: rgba(255, 178, 43, 0.62); }
 
+/* image highlights: the Custom Highlight API can't paint a replaced element, so a
+   quoted image gets an overlay box instead (pointer-events:none → clicks fall
+   through to the image and hit the normal block/compose handlers). */
+.pen-imghl { position: absolute; pointer-events: none; z-index: 2147483643; border-radius: 5px;
+  background-color: rgba(255, 196, 64, 0.30); box-shadow: inset 0 0 0 2px rgba(255, 196, 64, 0.55); }
+.pen-imghl.active { background-color: rgba(255, 178, 43, 0.42); box-shadow: inset 0 0 0 2px rgba(255, 178, 43, 0.9); }
+.pen-imghl.draft { background-color: transparent; box-shadow: inset 0 0 0 2px rgba(255, 196, 64, 0.75); }
+
 /* when a panel is docked: collapse Quartz's sidebars, constrain the doc to the
    left half with comfortable margins, and let the panel own the right half */
 body.pen-panel-open .page { max-width: none !important; margin: 0 !important; }
