@@ -7,3 +7,6 @@ dist/
 /.obsidian/workspace.json
 /.obsidian/workspace-mobile.json
 /.obsidian/cache
+
+# Claude Code personal settings
+.claude/settings.local.json
