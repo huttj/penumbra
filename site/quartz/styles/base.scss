@@ -602,19 +602,23 @@ img {
   content-visibility: auto;
 }
 
-// An embedded image sits in its own <p>. `content-visibility` keeps the image's
-// own margin from collapsing into that paragraph, so it would otherwise stack
-// p-margin + img-margin and double the gap. Zero the image's block margin and let
-// the wrapping paragraph provide the spacing — same rhythm as a normal line break.
-// Scoped to a lone image: a CAPTIONED image (`img + em`) keeps its margin so the
-// caption's translateY below lands just under it instead of overlapping it.
-p > img:only-child {
-  margin-block: 0;
+// A paragraph image takes its spacing from the wrapping <p>, not its own top margin
+// (`content-visibility` stops the two from collapsing, which would double the gap).
+p > img {
+  margin-top: 0;
 }
-
+// Lone image: tight, same rhythm as a normal line break.
+p > img:only-child {
+  margin-bottom: 0;
+}
+// Captioned image (`img` immediately followed by an `em`): a small, even gap down
+// to the caption, which stacks directly below — no transform/overlap hack.
+p > img:has(+ em) {
+  margin-bottom: 0.35rem;
+}
 p > img + em {
   display: block;
-  transform: translateY(-1rem);
+  margin: 0;
 }
 
 hr {
