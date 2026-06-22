@@ -606,7 +606,9 @@ img {
 // own margin from collapsing into that paragraph, so it would otherwise stack
 // p-margin + img-margin and double the gap. Zero the image's block margin and let
 // the wrapping paragraph provide the spacing — same rhythm as a normal line break.
-p > img {
+// Scoped to a lone image: a CAPTIONED image (`img + em`) keeps its margin so the
+// caption's translateY below lands just under it instead of overlapping it.
+p > img:only-child {
   margin-block: 0;
 }
 
