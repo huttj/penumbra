@@ -602,6 +602,14 @@ img {
   content-visibility: auto;
 }
 
+// An embedded image sits in its own <p>. `content-visibility` keeps the image's
+// own margin from collapsing into that paragraph, so it would otherwise stack
+// p-margin + img-margin and double the gap. Zero the image's block margin and let
+// the wrapping paragraph provide the spacing — same rhythm as a normal line break.
+p > img {
+  margin-block: 0;
+}
+
 p > img + em {
   display: block;
   transform: translateY(-1rem);
