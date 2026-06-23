@@ -28,7 +28,7 @@ crons = ["*/30 * * * *"]
 # ---- production values (used by `wrangler deploy`) ----
 # Local `wrangler dev` overrides these via worker/.dev.vars (gitignored).
 [vars]
-SITE_ORIGIN = "https://penumbra.page"        # CORS: the static site origin
+SITE_ORIGIN = "https://huttj.penumbra.page"  # CORS + auth redirect: this instance's content site
 PUBLIC_API_BASE = "https://api.penumbra.page" # this Worker's public URL (annotation ids)
 DEV_LOGIN = "true"                            # TEMPORARY passthrough sign-in (no email): /auth/email/start
                                               # returns the magic link directly so readers sign in instantly.

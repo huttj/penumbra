@@ -8,6 +8,62 @@ import { apiBase, currentUser, isAuthor, normalizeSource, now, uuid, type Env } 
 const htmlEscape = (s: string): string =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
 
+// The hub landing page (served at the apex, e.g. penumbra.page). Brief explainer +
+// a link to a live instance and the source.
+const LANDING_HTML = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Penumbra</title>
+<meta name="description" content="A federated, LLM-friendly writing + feedback system. Inline highlight-comments on your own writing, stored as open W3C Web Annotation JSON — a protocol, not a platform." />
+<style>
+  :root { color-scheme: light dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 2rem;
+    font: 17px/1.6 "Source Sans Pro", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    color: #2b2b2b; background: #faf8f8; }
+  main { max-width: 34rem; }
+  h1 { font-family: "Schibsted Grotesk", Georgia, serif; font-size: 2.6rem; margin: 0 0 .25rem; letter-spacing: -.01em; }
+  .tag { color: #284b63; font-size: 1.15rem; margin: 0 0 1.5rem; }
+  p { margin: 0 0 1rem; }
+  .muted { color: #6b6b6b; font-size: .95rem; }
+  .links { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1.75rem 0 0; }
+  a.btn { display: inline-block; text-decoration: none; padding: .55rem 1.1rem; border-radius: 7px;
+    font-weight: 600; border: 1px solid #284b63; color: #284b63; transition: background .15s ease, color .15s ease; }
+  a.btn.primary { background: #284b63; color: #faf8f8; }
+  a.btn:hover { background: #284b63; color: #faf8f8; }
+  code { background: rgba(40,75,99,.1); padding: .1em .35em; border-radius: 4px; font-size: .9em; }
+  @media (prefers-color-scheme: dark) {
+    body { color: #ebebec; background: #161618; }
+    .tag { color: #7b97aa; } .muted { color: #9a9a9a; }
+    a.btn { border-color: #7b97aa; color: #7b97aa; }
+    a.btn.primary, a.btn:hover { background: #7b97aa; color: #161618; }
+    code { background: rgba(123,151,170,.18); }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Penumbra</h1>
+  <p class="tag">A federated, LLM-friendly writing &amp; feedback system.</p>
+  <p>Penumbra turns your writing into a place for conversation: readers highlight a
+  passage and leave inline comments, and those comments can grow into full responses —
+  a comment and a document are the same primitive at different zoom levels.</p>
+  <p>It's a <strong>protocol, not a platform</strong>. Annotations are stored and served
+  as open <a href="https://www.w3.org/TR/annotation-model/">W3C Web Annotation</a> JSON,
+  so anyone can adopt the format without adopting the code. Each writer runs their own
+  instance on their own subdomain.</p>
+  <p class="muted">This is the hub. Instances live on subdomains like
+  <code>name.penumbra.page</code>.</p>
+  <div class="links">
+    <a class="btn primary" href="https://huttj.penumbra.page">Visit an instance →</a>
+    <a class="btn" href="https://github.com/huttj/penumbra">Source on GitHub</a>
+  </div>
+</main>
+</body>
+</html>`
+
 const app = new Hono<{ Bindings: Env }>()
 
 // CORS: allow the configured site origin, with credentials + Authorization header.
@@ -20,7 +76,16 @@ app.use('*', (c, next) =>
   })(c, next)
 )
 
-app.get('/', (c) => c.json({ name: 'penumbra-api', ok: true }))
+// The worker answers on two hosts: the API subdomain (api.penumbra.page) and the
+// project apex/hub (penumbra.page), which serves a small landing page. Per-instance
+// content (e.g. huttj.penumbra.page) is served by Cloudflare Pages, not this worker.
+const isApiHost = (host: string) =>
+  host.startsWith('api.') || host.startsWith('localhost') || host.startsWith('127.')
+
+app.get('/', (c) => {
+  if (isApiHost(c.req.header('host') ?? '')) return c.json({ name: 'penumbra-api', ok: true })
+  return c.html(LANDING_HTML)
+})
 
 app.route('/auth', auth)
 app.route('/responses', responses)

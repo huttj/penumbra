@@ -98,7 +98,9 @@ export default (() => {
         {/* Penumbra annotator: inline highlight comments (W3C Web Annotation). */}
         <script
           dangerouslySetInnerHTML={{
-            __html: `window.PENUMBRA={api:(location.hostname==="localhost"||location.hostname==="127.0.0.1")?"http://localhost:8787":"https://api.${cfg.baseUrl}",sourceBase:"https://${cfg.baseUrl}",root:".center article",commitSha:"${process.env.CF_PAGES_COMMIT_SHA ?? process.env.GITHUB_SHA ?? ''}"};`,
+            // The annotator always talks to the shared API at api.<root-domain>, so a
+            // per-instance subdomain (e.g. huttj.penumbra.page) still reaches api.penumbra.page.
+            __html: `window.PENUMBRA={api:(location.hostname==="localhost"||location.hostname==="127.0.0.1")?"http://localhost:8787":"https://api.${cfg.baseUrl.split(".").slice(-2).join(".")}",sourceBase:"https://${cfg.baseUrl}",root:".center article",commitSha:"${process.env.CF_PAGES_COMMIT_SHA ?? process.env.GITHUB_SHA ?? ''}"};`,
           }}
         />
         <script src={joinSegments(baseDir, "static/penumbra.js")} defer />

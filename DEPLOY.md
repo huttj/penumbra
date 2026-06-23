@@ -27,13 +27,28 @@ npx wrangler deploy                      # also provisions the api.penumbra.page
 curl https://api.penumbra.page/          # → {"name":"penumbra-api","ok":true}
 ```
 
-## 2. Site (Cloudflare Pages)
+## Domains (hub + instances)
+- **`penumbra.page`** (apex/hub) → the **Worker** serves a small landing page (what
+  Penumbra is + a link to an instance and the repo). It's a hub for many instances.
+- **`huttj.penumbra.page`** (and any `name.penumbra.page`) → a per-instance **Pages**
+  site (the writer's Quartz content). `baseUrl` in `site/quartz.config.yaml` is the
+  instance subdomain.
+- **`api.penumbra.page`** → the **Worker** API, shared by all instances. The annotator
+  derives it from the root domain, so a subdomain instance reaches `api.penumbra.page`.
+
+## 2. Site (Cloudflare Pages) — a writer instance
 **Dashboard route (recommended):** Pages → Create → connect the GitHub repo, then:
 - **Build command:**
   `cd annotator && npm i && npm run build && cd ../site && npm i && npx quartz plugin install --from-config && npx quartz build`
 - **Build output directory:** `site/public`
 - **Root directory:** repo root
-- Add custom domain **penumbra.page** to the Pages project.
+- Add custom domain **huttj.penumbra.page** to the Pages project (the instance subdomain).
+
+## 2b. Hub landing at the apex
+Bind **`penumbra.page`** as a custom domain on the **Worker** (Workers & Pages →
+the worker → Settings → Domains & Routes → Add `penumbra.page`). The worker returns
+the landing page for the apex host and the API for `api.*`. After this, remove
+`penumbra.page` from the Pages project so it only serves the instance subdomain.
 
 **Or direct upload:**
 ```bash
