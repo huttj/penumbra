@@ -28,12 +28,11 @@ crons = ["*/30 * * * *"]
 # ---- production values (used by `wrangler deploy`) ----
 # Local `wrangler dev` overrides these via worker/.dev.vars (gitignored).
 [vars]
-SITE_ORIGIN = "https://huttj.penumbra.page"  # CORS + auth redirect: this instance's content site
+SITE_ORIGIN = "https://penumbra.page"        # CORS + auth redirect: the content site readers are on
 PUBLIC_API_BASE = "https://api.penumbra.page" # this Worker's public URL (annotation ids)
-DEV_LOGIN = "true"                            # TEMPORARY passthrough sign-in (no email): /auth/email/start
-                                              # returns the magic link directly so readers sign in instantly.
-                                              # Revert to "false" once ZeptoMail sending is confirmed.
-                                              # While true, anyone can sign in as any address (incl. the author) unverified.
+DEV_LOGIN = "false"                           # Real magic-link emails via ZeptoMail. When "true",
+                                              # /auth/email/start returns the link directly (no email)
+                                              # and anyone can sign in as any address unverified — local dev only.
 MAIL_FROM = "Penumbra <noreply@penumbra.page>"  # must be on your ZeptoMail-verified domain
 AUTHOR_IDS = "email:joshua@huttj.com"         # your identity → replies badged "author"
 GITHUB_REPO = "huttj/penumbra"                # write-back target for submitted responses
