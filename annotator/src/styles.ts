@@ -188,6 +188,12 @@ export const CSS = `
 .pen-login .pen-providers { display: flex; gap: 6px; margin-top: 6px; align-items: center; }
 .pen-login input { background: var(--pen-bg); color: var(--pen-fg); border: 1px solid var(--pen-border);
   border-radius: 7px; padding: 6px 8px; font: inherit; width: 150px; }
+/* confirmation state: takes over the popover after a magic link is sent */
+.pen-login .pen-sent { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; max-width: 240px; }
+.pen-login .pen-sent-icon { font-size: 22px; line-height: 1; }
+.pen-login .pen-sent-title { font-size: 14px; font-weight: 600; color: var(--pen-fg); margin-top: 2px; }
+.pen-login .pen-sent-msg { font-size: 12px; color: var(--pen-muted); line-height: 1.45; }
+.pen-login .pen-sent .pen-btn { margin-top: 8px; align-self: flex-end; }
 
 /* quote highlights driven by the response editor */
 /* amber/yellow to match a "found" quote's colour in the editor */

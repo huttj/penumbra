@@ -952,12 +952,21 @@ export class Penumbra {
       el.innerHTML = `<div class="pen-title">Sign in to comment</div>
         <div class="pen-providers"><input type="email" placeholder="you@email.com">
           <button class="pen-btn" data-act="email">Email me a link</button></div>`
+      const showSent = (email: string) => {
+        el.innerHTML = `<div class="pen-sent">
+          <div class="pen-sent-icon">✉️</div>
+          <div class="pen-sent-title">Check your email</div>
+          <div class="pen-sent-msg">We sent a sign-in link to <span class="pen-name">${esc(email)}</span>. Open it to finish signing in.</div>
+          <button class="pen-btn ghost" data-act="ok">OK</button>
+        </div>`
+        el.querySelector('[data-act="ok"]')!.addEventListener('click', () => this.renderLogin())
+      }
       const submit = async () => {
         const input = el.querySelector('input') as HTMLInputElement
         const email = input.value.trim(); if (!email) return
         const res = await this.api.emailLogin(email)
         if (res.link) location.href = res.link
-        else { input.value = ''; input.placeholder = 'Check your email ✉️' }
+        else showSent(email)
       }
       el.querySelector('[data-act="email"]')!.addEventListener('click', submit)
       el.querySelector('input')!.addEventListener('keydown', (e) => { if ((e as KeyboardEvent).key === 'Enter') submit() })
